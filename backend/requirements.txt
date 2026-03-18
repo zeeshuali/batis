@@ -1,0 +1,12 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+SQLAlchemy==2.0.35
+psycopg2-binary==2.9.10
+python-dotenv==1.0.1
+pydantic-settings==2.6.1
+requests==2.32.3
+pandas==2.2.3
+gtfs-realtime-bindings==1.0.0
+geoalchemy2==0.15.2
+python-dateutil==2.9.0.post0
+

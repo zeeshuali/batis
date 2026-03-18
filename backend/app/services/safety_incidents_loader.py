@@ -1,0 +1,198 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+import requests
+from sqlalchemy import text
+from sqlalchemy.engine import Connection
+
+from app.db import get_engine
+
+# Oakland Crime Watch — Socrata open dataset, no auth required
+# https://data.oaklandca.gov/Public-Safety/Oakland-Crime-Watch-Data/ppgh-7dqv
+OAKLAND_CRIME_URL = "https://data.oaklandca.gov/resource/ppgh-7dqv.json"
+
+# Oakland Traffic Collision Data
+# https://data.oaklandca.gov/Transportation/Oakland-Traffic-Collision-Data/ym6k-rx7a
+OAKLAND_COLLISION_URL = "https://data.oaklandca.gov/resource/ym6k-rx7a.json"
+
+_PAGE_SIZE = 1000
+
+
+def _fetch_socrata(url: str, where: str = "", limit: int = _PAGE_SIZE) -> list[dict]:
+    params: dict = {"$limit": limit, "$order": ":id"}
+    if where:
+        params["$where"] = where
+    resp = requests.get(url, params=params, timeout=30, verify=False)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _extract_coords(row: dict) -> tuple[float, float] | None:
+    """Try common Socrata location field patterns to extract (lat, lon)."""
+    # Pattern 1: GeoJSON-style {"coordinates": [lon, lat]}
+    for key in ("location_1", "location", "geolocation"):
+        loc = row.get(key)
+        if isinstance(loc, dict):
+            coords = loc.get("coordinates")
+            if coords and len(coords) == 2:
+                return float(coords[1]), float(coords[0])
+
+    # Pattern 2: flat lat / lon fields
+    for lat_key, lon_key in [("latitude", "longitude"), ("lat", "lon"), ("lat", "long_"), ("y", "x")]:
+        if row.get(lat_key) and row.get(lon_key):
+            try:
+                return float(row[lat_key]), float(row[lon_key])
+            except (ValueError, TypeError):
+                pass
+
+    return None
+
+
+def _parse_ts(row: dict, *keys: str) -> datetime | None:
+    for key in keys:
+        val = row.get(key)
+        if val:
+            try:
+                return datetime.fromisoformat(str(val).replace("Z", "+00:00"))
+            except ValueError:
+                pass
+    return None
+
+
+def _load_crime_incidents(conn: Connection, days_back: int) -> int:
+    since = (datetime.now(timezone.utc) - timedelta(days=days_back)).strftime("%Y-%m-%dT%H:%M:%S")
+    rows = _fetch_socrata(OAKLAND_CRIME_URL, where=f"datetime > '{since}'")
+    if not rows:
+        return 0
+
+    incident_rows = []
+    for r in rows:
+        coords = _extract_coords(r)
+        if coords is None:
+            continue
+        lat, lon = coords
+
+        incident_rows.append({
+            "source": "oakland_crime_watch",
+            "incident_type": "crime",
+            "occurred_at": _parse_ts(r, "datetime", "date"),
+            "severity": 1,
+            "lat": lat,
+            "lon": lon,
+            "properties": json.dumps({
+                "description": r.get("description", ""),
+                "crimetype": r.get("crimetype", ""),
+            }),
+        })
+
+    if not incident_rows:
+        return 0
+
+    _bulk_insert_incidents(conn, incident_rows)
+    return len(incident_rows)
+
+
+def _load_collision_incidents(conn: Connection) -> int:
+    rows = _fetch_socrata(OAKLAND_COLLISION_URL)
+    if not rows:
+        return 0
+
+    incident_rows = []
+    for r in rows:
+        coords = _extract_coords(r)
+        if coords is None:
+            continue
+        lat, lon = coords
+
+        severity = 1
+        sev_str = str(r.get("collision_severity", r.get("severity", ""))).lower()
+        if "fatal" in sev_str or "killed" in sev_str:
+            severity = 4
+        elif "severe" in sev_str or "serious" in sev_str:
+            severity = 3
+        elif "injur" in sev_str:
+            severity = 2
+
+        incident_rows.append({
+            "source": "oakland_collisions",
+            "incident_type": "collision",
+            "occurred_at": _parse_ts(r, "accident_date", "date", "datetime", "collision_date"),
+            "severity": severity,
+            "lat": lat,
+            "lon": lon,
+            "properties": json.dumps({k: v for k, v in r.items() if k not in ("location", "location_1", "geolocation")}),
+        })
+
+    if not incident_rows:
+        return 0
+
+    _bulk_insert_incidents(conn, incident_rows)
+    return len(incident_rows)
+
+
+def _bulk_insert_incidents(conn: Connection, rows: list[dict]) -> None:
+    conn.execute(
+        text(
+            """
+            INSERT INTO safety_incidents_raw (
+              source, incident_type, occurred_at, severity, geom, properties
+            ) VALUES (
+              :source,
+              :incident_type,
+              :occurred_at,
+              :severity,
+              ST_SetSRID(ST_MakePoint(:lon, :lat), 4326),
+              CAST(:properties AS jsonb)
+            )
+            """
+        ),
+        rows,
+    )
+
+
+def load_safety_incidents(
+    days_back: int = 90,
+    conn: Optional[Connection] = None,
+) -> None:
+    """
+    Load crime and collision data from Oakland's open data portal into
+    safety_incidents_raw, replacing any previously loaded records from the
+    same sources.
+
+    Data sources (public Socrata APIs, no key required):
+    - Oakland Crime Watch (ppgh-7dqv)
+    - Oakland Traffic Collision Data (ym6k-rx7a)
+    """
+    own_conn = False
+    if conn is None:
+        engine = get_engine()
+        conn = engine.connect()
+        own_conn = True
+
+    try:
+        conn.execute(
+            text(
+                "DELETE FROM safety_incidents_raw "
+                "WHERE source IN ('oakland_crime_watch', 'oakland_collisions')"
+            )
+        )
+
+        try:
+            crime_count = _load_crime_incidents(conn, days_back=days_back)
+        except Exception as exc:
+            print(f"  [safety] Crime fetch failed (skipping): {exc}")
+            crime_count = 0
+
+        try:
+            collision_count = _load_collision_incidents(conn)
+        except Exception as exc:
+            print(f"  [safety] Collision fetch failed (skipping): {exc}")
+            collision_count = 0
+
+        print(f"  Loaded {crime_count} crime incidents, {collision_count} collision incidents.")
+    finally:
+        if own_conn and conn is not None:
+            conn.close()

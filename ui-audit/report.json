@@ -1,0 +1,373 @@
+{
+  "url": "http://localhost:5173/",
+  "checks": {
+    "headerTabs": [
+      "Transit Reliability",
+      "Crowding Prediction",
+      "Stop Safety",
+      "Transit Coverage",
+      "Demand Forecast"
+    ],
+    "sidebarVisible": true,
+    "dateRangeVisible": true,
+    "mapWrapperVisible": true,
+    "mapCanvasPresent": true
+  },
+  "tabs": {
+    "Crowding Prediction": {
+      "sidebarH2": "Crowding Prediction",
+      "dateRangeVisible": true,
+      "expectedDateRange": true,
+      "layout": {
+        "sidebar": true,
+        "map": true
+      }
+    },
+    "Stop Safety": {
+      "sidebarH2": "Stop Safety",
+      "dateRangeVisible": false,
+      "expectedDateRange": false,
+      "layout": {
+        "sidebar": true,
+        "map": true
+      }
+    },
+    "Transit Coverage": {
+      "sidebarH2": "Transit Coverage",
+      "dateRangeVisible": false,
+      "expectedDateRange": false,
+      "layout": {
+        "sidebar": true,
+        "map": true
+      }
+    },
+    "Demand Forecast": {
+      "sidebarH2": "Demand Forecast",
+      "dateRangeVisible": true,
+      "expectedDateRange": true,
+      "layout": {
+        "sidebar": true,
+        "map": true
+      }
+    }
+  },
+  "console": [
+    {
+      "type": "warning",
+      "text": "This page appears to be missing CSS declarations for Mapbox GL JS, which may cause the map to display incorrectly. Please ensure your page includes mapbox-gl.css, as described in https://www.mapbox.com/mapbox-gl-js/api/."
+    },
+    {
+      "type": "error",
+      "text": "Access to XMLHttpRequest at 'http://localhost:8000/reliability/predictions?start_date=2026-03-03&end_date=2026-03-10' from origin 'http://localhost:5173' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource."
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_FAILED"
+    },
+    {
+      "type": "error",
+      "text": "Access to XMLHttpRequest at 'http://localhost:8000/reliability/predictions?start_date=2026-03-03&end_date=2026-03-10' from origin 'http://localhost:5173' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource."
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_FAILED"
+    },
+    {
+      "type": "warning",
+      "text": "WebGL: CONTEXT_LOST_WEBGL: loseContext: context lost"
+    },
+    {
+      "type": "warning",
+      "text": "[.WebGL-0x27840011c400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels"
+    },
+    {
+      "type": "warning",
+      "text": "[.WebGL-0x27840011c400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels"
+    },
+    {
+      "type": "warning",
+      "text": "[.WebGL-0x27840011c400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels"
+    },
+    {
+      "type": "warning",
+      "text": "[.WebGL-0x27840011c400]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)"
+    },
+    {
+      "type": "error",
+      "text": "Access to XMLHttpRequest at 'http://localhost:8000/crowding/predictions?start_date=2026-03-03&end_date=2026-03-10' from origin 'http://localhost:5173' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource."
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_FAILED"
+    },
+    {
+      "type": "error",
+      "text": "Access to XMLHttpRequest at 'http://localhost:8000/coverage/cells' from origin 'http://localhost:5173' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource."
+    },
+    {
+      "type": "error",
+      "text": "Failed to load resource: net::ERR_FAILED"
+    }
+  ],
+  "pageErrors": [],
+  "requestFailed": [
+    {
+      "url": "https://api.mapbox.com/styles/v1/mapbox/dark-v11?sdk=js-3.19.1&access_token=pk.REDACTED",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "http://localhost:8000/reliability/predictions?start_date=2026-03-03&end_date=2026-03-10",
+      "failure": "net::ERR_FAILED"
+    },
+    {
+      "url": "http://localhost:8000/reliability/predictions?start_date=2026-03-03&end_date=2026-03-10",
+      "failure": "net::ERR_FAILED"
+    },
+    {
+      "url": "http://localhost:8000/crowding/predictions?start_date=2026-03-03&end_date=2026-03-10",
+      "failure": "net::ERR_FAILED"
+    },
+    {
+      "url": "http://localhost:8000/coverage/cells",
+      "failure": "net::ERR_FAILED"
+    }
+  ],
+  "responses": [
+    {
+      "status": 200,
+      "url": "http://localhost:5173/"
+    },
+    {
+      "status": 200,
+      "url": "http://localhost:5173/src/main.tsx"
+    },
+    {
+      "status": 200,
+      "url": "http://localhost:5173/@vite/client"
+    },
+    {
+      "status": 200,
+      "url": "http://localhost:5173/node_modules/.vite/deps/react.js?v=27005196"
+    },
+    {
+      "status": 200,
+      "url": "http://localhost:5173/@react-refresh"
+    },
+    {
+      "status": 200,
+      "url": "http://localhost:5173/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=27005196"
+    },
+    {
+      "status": 200,
+      "url": "http://localhost:5173/node_modules/.vite/deps/chunk-HKJ2B2AA.js?v=27005196"
+    },
+    {
+      "status": 200,
+      "url": "http://localhost:5173/node_modules/vite/dist/client/env.mjs"
+    },
+    {
+      "status": 200,
+      "url": "http://localhost:5173/src/App.tsx"
+    },
+    {
+      "status": 200,
+      "url": "http://localhost:5173/src/styles.css"
+    },
+    {
+      "status": 200,
+      "url": "http://localhost:5173/node_modules/.vite/deps/chunk-IU5JCZQL.js?v=27005196"
+    },
+    {
+      "status": 200,
+      "url": "http://localhost:5173/src/components/MapView.tsx"
+    },
+    {
+      "status": 200,
+      "url": "http://localhost:5173/src/components/Sidebar.tsx"
+    },
+    {
+      "status": 200,
+      "url": "http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=27005196"
+    },
+    {
+      "status": 200,
+      "url": "http://localhost:5173/node_modules/.vite/deps/axios.js?v=27005196"
+    },
+    {
+      "status": 200,
+      "url": "http://localhost:5173/node_modules/.vite/deps/mapbox-gl.js?v=27005196"
+    },
+    {
+      "status": 200,
+      "url": "blob:http://localhost:5173/1fdb4863-9be6-4ff5-858b-f0b29631c994"
+    },
+    {
+      "status": 200,
+      "url": "blob:http://localhost:5173/1fdb4863-9be6-4ff5-858b-f0b29631c994"
+    },
+    {
+      "status": 200,
+      "url": "blob:http://localhost:5173/1fdb4863-9be6-4ff5-858b-f0b29631c994"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/styles/v1/mapbox/dark-v11?sdk=js-3.19.1&access_token=pk.REDACTED"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/styles/v1/mapbox/dark-v11/iconset.pbf?access_token=pk.REDACTED"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/328/790.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/327/790.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/328/791.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/329/792.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/328/792.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/327/791.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/329/791.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/327/792.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/329/790.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+    },
+    {
+      "status": 204,
+      "url": "https://events.mapbox.com/events/v2?access_token=pk.REDACTED"
+    },
+    {
+      "status": 204,
+      "url": "https://events.mapbox.com/events/v2?access_token=pk.REDACTED"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/fonts/v1/mapbox/DIN%20Pro%20Italic,Arial%20Unicode%20MS%20Regular/0-255.pbf?access_token=pk.REDACTED"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/fonts/v1/mapbox/DIN%20Pro%20Regular,Arial%20Unicode%20MS%20Regular/0-255.pbf?access_token=pk.REDACTED"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/fonts/v1/mapbox/DIN%20Pro%20Medium,Arial%20Unicode%20MS%20Regular/0-255.pbf?access_token=pk.REDACTED"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/fonts/v1/mapbox/DIN%20Pro%20Regular,Arial%20Unicode%20MS%20Regular/8192-8447.pbf?access_token=pk.REDACTED"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/fonts/v1/mapbox/DIN%20Pro%20Italic,Arial%20Unicode%20MS%20Regular/8192-8447.pbf?access_token=pk.REDACTED"
+    },
+    {
+      "status": 200,
+      "url": "https://api.mapbox.com/map-sessions/v1?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+    },
+    {
+      "status": 204,
+      "url": "https://events.mapbox.com/events/v2?access_token=pk.REDACTED"
+    },
+    {
+      "status": 204,
+      "url": "https://events.mapbox.com/events/v2?access_token=pk.REDACTED"
+    }
+  ],
+  "mapbox": {
+    "responses": [
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/styles/v1/mapbox/dark-v11?sdk=js-3.19.1&access_token=pk.REDACTED"
+      },
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/styles/v1/mapbox/dark-v11/iconset.pbf?access_token=pk.REDACTED"
+      },
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/328/790.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+      },
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/327/790.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+      },
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/328/791.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+      },
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/329/792.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+      },
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/328/792.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+      },
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/327/791.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+      },
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/329/791.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+      },
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/327/792.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+      },
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2,mapbox.mapbox-bathymetry-v2/11/329/790.vector.pbf?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+      },
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/fonts/v1/mapbox/DIN%20Pro%20Italic,Arial%20Unicode%20MS%20Regular/0-255.pbf?access_token=pk.REDACTED"
+      },
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/fonts/v1/mapbox/DIN%20Pro%20Regular,Arial%20Unicode%20MS%20Regular/0-255.pbf?access_token=pk.REDACTED"
+      },
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/fonts/v1/mapbox/DIN%20Pro%20Medium,Arial%20Unicode%20MS%20Regular/0-255.pbf?access_token=pk.REDACTED"
+      },
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/fonts/v1/mapbox/DIN%20Pro%20Regular,Arial%20Unicode%20MS%20Regular/8192-8447.pbf?access_token=pk.REDACTED"
+      },
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/fonts/v1/mapbox/DIN%20Pro%20Italic,Arial%20Unicode%20MS%20Regular/8192-8447.pbf?access_token=pk.REDACTED"
+      },
+      {
+        "status": 200,
+        "url": "https://api.mapbox.com/map-sessions/v1?sku=101VZWTAgGlNr&access_token=pk.REDACTED"
+      }
+    ],
+    "tileResponses": []
+  },
+  "backend": {
+    "responses": []
+  }
+}
