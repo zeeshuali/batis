@@ -36,25 +36,39 @@ from app.services.analysis import (
 )
 from app.services.gtfs_rt_ingestor import run_polling_loop
 from app.core.security import api_key_dependency
+from ml.baseline import run_baseline_loop
 
-_rt_stop_event = threading.Event()
+_stop_event = threading.Event()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Start the GTFS-RT polling loop in a daemon thread alongside the API.
-    _rt_stop_event.clear()
-    t = threading.Thread(
+    _stop_event.clear()
+
+    # GTFS-RT ingestor — polls every 30s
+    t_rt = threading.Thread(
         target=run_polling_loop,
-        kwargs={"poll_interval_seconds": 30, "stop_event": _rt_stop_event},
+        kwargs={"poll_interval_seconds": 30, "stop_event": _stop_event},
         daemon=True,
         name="gtfs-rt-ingestor",
     )
-    t.start()
+    t_rt.start()
+
+    # SQL baseline predictions — refreshes every 30 min
+    t_baseline = threading.Thread(
+        target=run_baseline_loop,
+        kwargs={"interval_seconds": 1800, "stop_event": _stop_event},
+        daemon=True,
+        name="baseline-predictor",
+    )
+    t_baseline.start()
+
     yield
-    # Graceful shutdown: signal the loop and wait briefly.
-    _rt_stop_event.set()
-    t.join(timeout=5)
+
+    # Graceful shutdown
+    _stop_event.set()
+    t_rt.join(timeout=5)
+    t_baseline.join(timeout=5)
 
 
 app = FastAPI(title="Bay Area Transit Intelligence API", lifespan=lifespan)

@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS rt_vehicle_positions_raw (
   geom geometry(Point, 4326)
 );
 
+-- Retention policy: 30 days (managed by _cleanup_old_positions in gtfs_rt_ingestor.py)
 CREATE INDEX IF NOT EXISTS idx_rt_vehicle_positions_raw_timestamp
   ON rt_vehicle_positions_raw (timestamp);
 
@@ -136,6 +137,11 @@ CREATE INDEX IF NOT EXISTS idx_ops_trip_events_service_date_route
 
 CREATE INDEX IF NOT EXISTS idx_ops_trip_events_trip_stop
   ON ops_trip_events (trip_id, stop_sequence);
+
+-- Partial index for ML baseline and prediction queries
+CREATE INDEX IF NOT EXISTS idx_ops_trip_events_delay_date
+  ON ops_trip_events (service_date, route_id, delay_seconds)
+  WHERE delay_seconds IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS ops_headways (
   id bigserial PRIMARY KEY,

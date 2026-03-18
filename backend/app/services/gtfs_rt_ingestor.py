@@ -309,10 +309,10 @@ def _process_trip_updates(conn: Connection, feed: gtfs_realtime_pb2.FeedMessage)
     )
 
 
-def _cleanup_old_positions(conn: Connection, retain_hours: int = 2) -> None:
-    """Delete vehicle position rows older than retain_hours to keep the table small."""
+def _cleanup_old_positions(conn: Connection, retain_days: int = 30) -> None:
+    """Delete vehicle position rows older than retain_days for ML feature history."""
     conn.execute(
-        text("DELETE FROM rt_vehicle_positions_raw WHERE timestamp < NOW() - INTERVAL ':h hours'".replace(":h hours", f"{retain_hours} hours"))
+        text(f"DELETE FROM rt_vehicle_positions_raw WHERE timestamp < NOW() - INTERVAL '{retain_days} days'")
     )
 
 
