@@ -309,6 +309,13 @@ def _process_trip_updates(conn: Connection, feed: gtfs_realtime_pb2.FeedMessage)
     )
 
 
+def _cleanup_old_positions(conn: Connection, retain_hours: int = 2) -> None:
+    """Delete vehicle position rows older than retain_hours to keep the table small."""
+    conn.execute(
+        text("DELETE FROM rt_vehicle_positions_raw WHERE timestamp < NOW() - INTERVAL ':h hours'".replace(":h hours", f"{retain_hours} hours"))
+    )
+
+
 def ingest_gtfs_realtime_once() -> None:
     """
     Fetch GTFS-Realtime vehicle positions and trip updates once and persist
@@ -331,18 +338,22 @@ def ingest_gtfs_realtime_once() -> None:
         rows = _insert_vehicle_positions(conn, vehicle_feed)
         _insert_ops_trip_events(conn, rows)
         _process_trip_updates(conn, trip_updates_feed)
+        _cleanup_old_positions(conn)
 
 
-def run_polling_loop(poll_interval_seconds: int = 30) -> None:
+def run_polling_loop(poll_interval_seconds: int = 30, stop_event: "threading.Event | None" = None) -> None:
     """
-    Simple long-running loop to poll GTFS-Realtime feeds on an interval.
-    Intended to be run in a worker process or container.
+    Long-running loop that polls GTFS-Realtime feeds on an interval.
+    Pass a threading.Event to allow graceful shutdown.
     """
-    while True:
+    import threading
+    _stop = stop_event or threading.Event()
+    print(f"[gtfs-rt-ingestor] Starting — poll interval {poll_interval_seconds}s")
+    while not _stop.is_set():
         try:
             ingest_gtfs_realtime_once()
-        except Exception as exc:  # pragma: no cover - defensive logging
-            # For now we just print; in production use proper logging/monitoring.
-            print(f"[gtfs-rt-ingestor] Error during ingestion: {exc}")
-        time.sleep(poll_interval_seconds)
+            print(f"[gtfs-rt-ingestor] Ingested OK at {time.strftime('%H:%M:%S')}")
+        except Exception as exc:
+            print(f"[gtfs-rt-ingestor] Error: {exc}")
+        _stop.wait(poll_interval_seconds)
 

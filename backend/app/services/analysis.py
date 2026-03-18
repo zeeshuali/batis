@@ -655,7 +655,7 @@ def get_route_geo(conn: Connection, route_id: str) -> Dict[str, Any]:
 
 
 def get_live_vehicles(conn: Connection) -> Dict[str, Any]:
-    """GeoJSON of vehicle positions from the last 3 minutes."""
+    """GeoJSON of the most recent position per vehicle, within the last 15 minutes."""
     rows = conn.execute(
         text("""
         SELECT DISTINCT ON (vehicle_id)
@@ -664,7 +664,7 @@ def get_live_vehicles(conn: Connection) -> Dict[str, Any]:
             timestamp,
             ST_AsGeoJSON(geom)::json AS geometry
         FROM rt_vehicle_positions_raw
-        WHERE timestamp >= NOW() - INTERVAL '3 minutes'
+        WHERE timestamp >= NOW() - INTERVAL '15 minutes'
           AND geom IS NOT NULL
         ORDER BY vehicle_id, timestamp DESC
         """)
@@ -887,6 +887,98 @@ def get_route_comparison(
         {"route_ids": route_ids, "start_date": start_date, "end_date": end_date},
     ).mappings().all()
     return [dict(r) for r in rows]
+
+
+def get_trip_plan(
+    conn: Connection,
+    from_lat: float,
+    from_lng: float,
+    to_lat: float,
+    to_lng: float,
+) -> Dict[str, Any]:
+    """
+    Find direct transit itineraries from near (from_lat, from_lng) to near (to_lat, to_lng).
+    Searches for stops within 600 m of each point, finds trips serving both origin and
+    destination stops (origin sequence before dest), and overlays delay predictions.
+    Returns up to 10 itineraries, one per unique route.
+    """
+    rows = conn.execute(
+        text("""
+        WITH origin_ids AS (
+            SELECT stop_id
+            FROM gtfs_stops
+            WHERE ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint(:from_lng, :from_lat), 4326)::geography, 600)
+              AND geom IS NOT NULL
+            LIMIT 5
+        ),
+        dest_ids AS (
+            SELECT stop_id
+            FROM gtfs_stops
+            WHERE ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint(:to_lng, :to_lat), 4326)::geography, 600)
+              AND geom IS NOT NULL
+            LIMIT 5
+        ),
+        matched_trips AS (
+            SELECT DISTINCT ON (t.route_id)
+                st_o.trip_id,
+                t.route_id,
+                r.route_short_name,
+                r.route_color,
+                t.trip_headsign,
+                st_o.stop_id          AS origin_stop_id,
+                s_o.stop_name         AS origin_stop_name,
+                ROUND(ST_Distance(s_o.geom::geography, ST_SetSRID(ST_MakePoint(:from_lng, :from_lat), 4326)::geography))::int AS origin_walk_m,
+                st_d.stop_id          AS dest_stop_id,
+                s_d.stop_name         AS dest_stop_name,
+                ROUND(ST_Distance(s_d.geom::geography, ST_SetSRID(ST_MakePoint(:to_lng, :to_lat), 4326)::geography))::int AS dest_walk_m,
+                st_o.departure_time   AS depart_time,
+                st_d.arrival_time     AS arrive_time
+            FROM origin_ids oi
+            JOIN gtfs_stop_times st_o ON st_o.stop_id = oi.stop_id
+            CROSS JOIN dest_ids di
+            JOIN gtfs_stop_times st_d
+                ON  st_d.trip_id       = st_o.trip_id
+                AND st_d.stop_id       = di.stop_id
+                AND st_d.stop_sequence > st_o.stop_sequence
+            JOIN gtfs_trips  t   ON t.trip_id   = st_o.trip_id
+            JOIN gtfs_routes r   ON r.route_id  = t.route_id
+            JOIN gtfs_stops  s_o ON s_o.stop_id = st_o.stop_id
+            JOIN gtfs_stops  s_d ON s_d.stop_id = st_d.stop_id
+            ORDER BY t.route_id, st_o.departure_time
+        )
+        SELECT
+            mt.*,
+            dp.predicted_delay_seconds
+        FROM matched_trips mt
+        LEFT JOIN LATERAL (
+            SELECT AVG(predicted_delay_seconds) AS predicted_delay_seconds
+            FROM delay_predictions
+            WHERE route_id = mt.route_id
+              AND service_date = CURRENT_DATE
+        ) dp ON TRUE
+        ORDER BY mt.depart_time
+        LIMIT 10
+        """),
+        {
+            "from_lat": from_lat,
+            "from_lng": from_lng,
+            "to_lat": to_lat,
+            "to_lng": to_lng,
+        },
+    ).mappings().all()
+
+    itineraries = []
+    for r in rows:
+        d = dict(r)
+        if d.get("predicted_delay_seconds") is not None:
+            d["predicted_delay_seconds"] = float(d["predicted_delay_seconds"])
+        itineraries.append(d)
+
+    return {
+        "from": {"lat": from_lat, "lng": from_lng},
+        "to": {"lat": to_lat, "lng": to_lng},
+        "itineraries": itineraries,
+    }
 
 
 def get_bunching_summary(

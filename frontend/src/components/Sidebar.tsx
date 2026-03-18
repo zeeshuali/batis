@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import type { Section } from "../App";
+import type { LatLng, Section } from "../App";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -948,6 +948,153 @@ function RouteComparisonPanel({ startDate, endDate }: { startDate: string; endDa
   );
 }
 
+// ─── Section: Trip Planner ────────────────────────────────────────────────────
+
+interface Itinerary {
+  trip_id: string;
+  route_id: string;
+  route_short_name: string;
+  route_color: string | null;
+  trip_headsign: string | null;
+  origin_stop_id: string;
+  origin_stop_name: string;
+  origin_walk_m: number;
+  dest_stop_id: string;
+  dest_stop_name: string;
+  dest_walk_m: number;
+  depart_time: string;
+  arrive_time: string;
+  predicted_delay_seconds: number | null;
+}
+
+function TripPlannerPanel({
+  plannerOrigin,
+  plannerDest,
+  onReset,
+}: {
+  plannerOrigin: LatLng | null;
+  plannerDest: LatLng | null;
+  onReset: () => void;
+}) {
+  const [itineraries, setItineraries] = useState<Itinerary[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!plannerOrigin || !plannerDest) {
+      setItineraries([]);
+      setError(null);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    axios.get(`${API_BASE}/trip-planner`, {
+      params: {
+        from_lat: plannerOrigin.lat,
+        from_lng: plannerOrigin.lng,
+        to_lat: plannerDest.lat,
+        to_lng: plannerDest.lng,
+      },
+      headers: apiHeaders(),
+    })
+      .then((r) => setItineraries(r.data.itineraries ?? []))
+      .catch(() => setError("No routes found between those points."))
+      .finally(() => setLoading(false));
+  }, [plannerOrigin, plannerDest]);
+
+  const stepHint = !plannerOrigin
+    ? "Click the map to set your origin."
+    : !plannerDest
+    ? "Now click the map to set your destination."
+    : null;
+
+  return (
+    <>
+      <p className="sidebar-desc">
+        Point-to-point routing using scheduled GTFS trips with live delay overlay.
+      </p>
+      <SectionDivider />
+      {stepHint && (
+        <div className="planner-hint">
+          <span className="planner-hint-icon">📍</span>
+          {stepHint}
+        </div>
+      )}
+      {(plannerOrigin || plannerDest) && (
+        <div style={{ marginBottom: "0.5rem" }}>
+          {plannerOrigin && (
+            <div className="planner-pin-row planner-pin-row--origin">
+              <span className="planner-pin-dot" style={{ background: "#22c55e" }} />
+              <span className="planner-pin-label">
+                {plannerOrigin.lat.toFixed(5)}, {plannerOrigin.lng.toFixed(5)}
+              </span>
+            </div>
+          )}
+          {plannerDest && (
+            <div className="planner-pin-row planner-pin-row--dest">
+              <span className="planner-pin-dot" style={{ background: "#ef4444" }} />
+              <span className="planner-pin-label">
+                {plannerDest.lat.toFixed(5)}, {plannerDest.lng.toFixed(5)}
+              </span>
+            </div>
+          )}
+          <button className="preset-btn" style={{ marginTop: "0.4rem" }} onClick={onReset}>
+            Reset pins
+          </button>
+        </div>
+      )}
+      {loading && <Spinner />}
+      {error && <EmptyState msg={error} />}
+      {!loading && !error && plannerOrigin && plannerDest && itineraries.length === 0 && (
+        <EmptyState msg="No direct routes found within 600 m of both points. Try zooming in closer to stops." />
+      )}
+      {!loading && itineraries.length > 0 && (
+        <>
+          <SectionDivider />
+          <h3 className="sidebar-table-title">
+            {itineraries.length} route{itineraries.length !== 1 ? "s" : ""} found
+          </h3>
+          <ul className="data-list" style={{ marginTop: "0.25rem" }}>
+            {itineraries.map((it) => {
+              const routeColor = it.route_color ? `#${it.route_color}` : "#38bdf8";
+              const delay = it.predicted_delay_seconds ?? 0;
+              const delayClass = delay < 60 ? "on-time" : delay < 180 ? "minor" : "moderate";
+              return (
+                <li key={`${it.trip_id}-${it.origin_stop_id}`} className="data-list-item" style={{ flexDirection: "column", alignItems: "flex-start", gap: "0.25rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "center" }}>
+                    <span className="route-chip" style={{ background: routeColor, color: "#fff" }}>
+                      {it.route_short_name || it.route_id}
+                    </span>
+                    {it.predicted_delay_seconds != null && (
+                      <span className={`delay-badge delay-badge--${delayClass}`}>
+                        +{fmtDelay(delay)} predicted
+                      </span>
+                    )}
+                  </div>
+                  {it.trip_headsign && (
+                    <span style={{ fontSize: "0.78rem", color: "#94a3b8" }}>→ {it.trip_headsign}</span>
+                  )}
+                  <div style={{ display: "flex", gap: "0.75rem", fontSize: "0.8rem", marginTop: "0.1rem" }}>
+                    <span>Dep: <strong>{it.depart_time}</strong></span>
+                    <span>Arr: <strong>{it.arrive_time}</strong></span>
+                  </div>
+                  <div style={{ display: "flex", gap: "0.75rem", fontSize: "0.72rem", color: "#94a3b8" }}>
+                    <span>Walk to stop: {it.origin_walk_m} m</span>
+                    <span>Walk from stop: {it.dest_walk_m} m</span>
+                  </div>
+                  <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                    {it.origin_stop_name} → {it.dest_stop_name}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+    </>
+  );
+}
+
 // ─── Root Sidebar component ───────────────────────────────────────────────────
 
 interface SidebarProps {
@@ -958,6 +1105,9 @@ interface SidebarProps {
   onEndDateChange:   (v: string) => void;
   onRouteSelect:    (id: string) => void;
   selectedRouteId:  string | null;
+  plannerOrigin:    LatLng | null;
+  plannerDest:      LatLng | null;
+  onResetPlanner:   () => void;
 }
 
 const SECTION_TITLES: Record<Section, string> = {
@@ -970,6 +1120,7 @@ const SECTION_TITLES: Record<Section, string> = {
   bunching:    "Bunching Analysis",
   vehicles:    "Live Vehicles",
   comparison:  "Route Comparison",
+  planner:     "Trip Planner",
 };
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -980,6 +1131,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onEndDateChange,
   onRouteSelect,
   selectedRouteId,
+  plannerOrigin,
+  plannerDest,
+  onResetPlanner,
 }) => {
   return (
     <aside className="sidebar">
@@ -1030,6 +1184,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {activeSection === "bunching"    && <BunchingPanel startDate={startDate} endDate={endDate} />}
       {activeSection === "vehicles"    && <LiveVehiclesPanel />}
       {activeSection === "comparison"  && <RouteComparisonPanel startDate={startDate} endDate={endDate} />}
+      {activeSection === "planner"     && <TripPlannerPanel plannerOrigin={plannerOrigin} plannerDest={plannerDest} onReset={onResetPlanner} />}
 
       <p className="sidebar-backend-hint">
         API: <code>{API_BASE}</code>

@@ -70,6 +70,9 @@ CREATE TABLE IF NOT EXISTS gtfs_stop_times (
   PRIMARY KEY (trip_id, stop_sequence)
 );
 
+CREATE INDEX IF NOT EXISTS idx_gtfs_stop_times_stop_id
+  ON gtfs_stop_times (stop_id);
+
 CREATE TABLE IF NOT EXISTS gtfs_shapes (
   shape_id text,
   shape_pt_lat double precision,

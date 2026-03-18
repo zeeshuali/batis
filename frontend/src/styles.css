@@ -1139,6 +1139,39 @@ body {
 }
 .export-btn:hover { background: rgba(30, 58, 138, 0.7); }
 
+/* ─── Trip Planner ─────────────────────────────────────────────────────────── */
+
+.planner-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  color: #94a3b8;
+  margin-bottom: 0.5rem;
+}
+.planner-hint-icon { font-size: 1rem; }
+
+.planner-pin-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  padding: 0.2rem 0;
+}
+.planner-pin-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid rgba(255,255,255,0.6);
+}
+.planner-pin-label { font-family: monospace; font-size: 0.75rem; }
+
 /* ─── Section title row ────────────────────────────────────────────────────── */
 .section-title-row {
   display: flex;
@@ -1370,6 +1403,14 @@ body {
 }
 [data-theme="light"] .popup-label { color: #64748b; }
 [data-theme="light"] .popup-value { color: #1e293b; }
+
+/* Trip Planner */
+[data-theme="light"] .planner-hint {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #374151;
+}
+[data-theme="light"] .planner-pin-row { color: #475569; }
 
 /* Alerts banner */
 [data-theme="light"] .alert-item {

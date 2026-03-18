@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import axios from "axios";
-import type { Section } from "../App";
+import type { LatLng, Section } from "../App";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -23,6 +23,9 @@ export interface MapViewProps {
   onStopClick: (stopId: string) => void;
   selectedRouteId: string | null;
   darkMode: boolean;
+  plannerOrigin: LatLng | null;
+  plannerDest: LatLng | null;
+  onPlannerMapClick: (lat: number, lng: number) => void;
 }
 
 interface LegendItem {
@@ -33,7 +36,7 @@ interface LegendItem {
 
 // ─── Layer / source constants ─────────────────────────────────────────────────
 
-const SOURCES = ["reliability-stops", "safety-stops", "crowding-stops", "demand-stops", "coverage-cells", "deserts", "selected-route", "rt-vehicles"] as const;
+const SOURCES = ["reliability-stops", "safety-stops", "crowding-stops", "demand-stops", "coverage-cells", "deserts", "selected-route", "rt-vehicles", "planner-origin", "planner-dest"] as const;
 
 const SECTION_LAYERS: Record<Section, string[]> = {
   reliability: ["reliability-layer", "reliability-layer-border"],
@@ -45,6 +48,7 @@ const SECTION_LAYERS: Record<Section, string[]> = {
   bunching:    ["reliability-layer", "reliability-layer-border"],
   vehicles:    ["vehicles-layer"],
   comparison:  [],
+  planner:     ["planner-origin-circle", "planner-dest-circle"],
 };
 
 const ALL_LAYERS = Object.values(SECTION_LAYERS).flat();
@@ -164,6 +168,13 @@ const LEGENDS: Record<Section, { title: string; items: LegendItem[] }> = {
     title: "Route Comparison",
     items: [],
   },
+  planner: {
+    title: "Trip Planner",
+    items: [
+      { color: "#22c55e", label: "Origin (click map)" },
+      { color: "#ef4444", label: "Destination" },
+    ],
+  },
 };
 
 // ─── Popup HTML builders ──────────────────────────────────────────────────────
@@ -281,7 +292,7 @@ function setSource(map: mapboxgl.Map, id: string, data: GeoJSON.FeatureCollectio
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export const MapView: React.FC<MapViewProps> = ({ activeSection, dateRange, onStopClick, selectedRouteId, darkMode }) => {
+export const MapView: React.FC<MapViewProps> = ({ activeSection, dateRange, onStopClick, selectedRouteId, darkMode, plannerOrigin, plannerDest, onPlannerMapClick }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef         = useRef<mapboxgl.Map | null>(null);
   const mapLoadedRef   = useRef(false);
@@ -289,11 +300,12 @@ export const MapView: React.FC<MapViewProps> = ({ activeSection, dateRange, onSt
   const selectedRouteIdRef = useRef<string | null>(selectedRouteId);
 
   // Stable refs for use inside async map callbacks
-  const darkModeRef      = useRef(darkMode);
-  const activeSectionRef = useRef(activeSection);
-  const dateRangeRef     = useRef(dateRange);
-  const onStopClickRef   = useRef(onStopClick);
-  const isFirstRenderRef = useRef(true);
+  const darkModeRef           = useRef(darkMode);
+  const activeSectionRef      = useRef(activeSection);
+  const dateRangeRef          = useRef(dateRange);
+  const onStopClickRef        = useRef(onStopClick);
+  const onPlannerMapClickRef  = useRef(onPlannerMapClick);
+  const isFirstRenderRef      = useRef(true);
 
   // Keep refs in sync with props/state
   useEffect(() => { selectedRouteIdRef.current = selectedRouteId; }, [selectedRouteId]);
@@ -301,6 +313,7 @@ export const MapView: React.FC<MapViewProps> = ({ activeSection, dateRange, onSt
   useEffect(() => { activeSectionRef.current = activeSection; }, [activeSection]);
   useEffect(() => { dateRangeRef.current = dateRange; }, [dateRange]);
   useEffect(() => { onStopClickRef.current = onStopClick; }, [onStopClick]);
+  useEffect(() => { onPlannerMapClickRef.current = onPlannerMapClick; }, [onPlannerMapClick]);
 
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState<string | null>(null);
@@ -397,6 +410,10 @@ export const MapView: React.FC<MapViewProps> = ({ activeSection, dateRange, onSt
             break;
           }
           case "comparison": {
+            setIsEmpty(false);
+            break;
+          }
+          case "planner": {
             setIsEmpty(false);
             break;
           }
@@ -595,6 +612,36 @@ export const MapView: React.FC<MapViewProps> = ({ activeSection, dateRange, onSt
       },
     });
 
+    // ── Trip planner markers ───────────────────────────────────────────────
+    map.addLayer({
+      id: "planner-origin-circle", type: "circle", source: "planner-origin",
+      layout: { visibility: "none" },
+      paint: {
+        "circle-color": "#22c55e",
+        "circle-radius": 10,
+        "circle-stroke-width": 3,
+        "circle-stroke-color": "#fff",
+        "circle-opacity": 0.95,
+      },
+    });
+    map.addLayer({
+      id: "planner-dest-circle", type: "circle", source: "planner-dest",
+      layout: { visibility: "none" },
+      paint: {
+        "circle-color": "#ef4444",
+        "circle-radius": 10,
+        "circle-stroke-width": 3,
+        "circle-stroke-color": "#fff",
+        "circle-opacity": 0.95,
+      },
+    });
+
+    // ── Planner map click ──────────────────────────────────────────────────
+    map.on("click", (e) => {
+      if (activeSectionRef.current !== "planner") return;
+      onPlannerMapClickRef.current(e.lngLat.lat, e.lngLat.lng);
+    });
+
     // ── Hover interactions (popups only) ───────────────────────────────────
     for (const [layerId, buildPopup] of Object.entries(POPUP_LAYERS)) {
       map.on("mousemove", layerId, (e) => {
@@ -712,6 +759,32 @@ export const MapView: React.FC<MapViewProps> = ({ activeSection, dateRange, onSt
     }, 30_000);
     return () => clearInterval(id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection]);
+
+  // ── Update planner marker sources ────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    const fc: GeoJSON.FeatureCollection = plannerOrigin
+      ? { type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [plannerOrigin.lng, plannerOrigin.lat] }, properties: {} }] }
+      : emptyFC();
+    setSource(map, "planner-origin", fc);
+  }, [plannerOrigin]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    const fc: GeoJSON.FeatureCollection = plannerDest
+      ? { type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [plannerDest.lng, plannerDest.lat] }, properties: {} }] }
+      : emptyFC();
+    setSource(map, "planner-dest", fc);
+  }, [plannerDest]);
+
+  // ── Crosshair cursor in planner mode ─────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    map.getCanvas().style.cursor = activeSection === "planner" ? "crosshair" : "";
   }, [activeSection]);
 
   // ── Toggle heatmap vs dot view for reliability/bunching ──────────────────

@@ -1,3 +1,5 @@
+import threading
+from contextlib import asynccontextmanager
 from datetime import date
 from typing import List, Optional, Tuple
 
@@ -30,10 +32,32 @@ from app.services.analysis import (
     get_stop_reachability,
     get_stop_safety_scores,
     get_transit_deserts,
+    get_trip_plan,
 )
+from app.services.gtfs_rt_ingestor import run_polling_loop
 from app.core.security import api_key_dependency
 
-app = FastAPI(title="Bay Area Transit Intelligence API")
+_rt_stop_event = threading.Event()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start the GTFS-RT polling loop in a daemon thread alongside the API.
+    _rt_stop_event.clear()
+    t = threading.Thread(
+        target=run_polling_loop,
+        kwargs={"poll_interval_seconds": 30, "stop_event": _rt_stop_event},
+        daemon=True,
+        name="gtfs-rt-ingestor",
+    )
+    t.start()
+    yield
+    # Graceful shutdown: signal the loop and wait briefly.
+    _rt_stop_event.set()
+    t.join(timeout=5)
+
+
+app = FastAPI(title="Bay Area Transit Intelligence API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -297,6 +321,17 @@ def routes_compare(
 ):
     ids = [r.strip() for r in route_ids.split(",") if r.strip()][:5]
     return get_route_comparison(conn, route_ids=ids, start_date=start_date, end_date=end_date)
+
+
+@app.get("/trip-planner", dependencies=[Depends(api_key_dependency)])
+def trip_planner(
+    from_lat: float = Query(),
+    from_lng: float = Query(),
+    to_lat: float = Query(),
+    to_lng: float = Query(),
+    conn: Connection = Depends(get_conn),
+):
+    return get_trip_plan(conn, from_lat=from_lat, from_lng=from_lng, to_lat=to_lat, to_lng=to_lng)
 
 
 @app.get("/alerts")

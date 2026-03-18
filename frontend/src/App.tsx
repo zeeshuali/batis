@@ -4,7 +4,9 @@ import { Sidebar } from "./components/Sidebar";
 import { StopDrawer } from "./components/StopDrawer";
 import { AlertsBanner } from "./components/AlertsBanner";
 
-export type Section = "reliability" | "crowding" | "safety" | "coverage" | "demand" | "routes" | "bunching" | "vehicles" | "comparison";
+export type Section = "reliability" | "crowding" | "safety" | "coverage" | "demand" | "routes" | "bunching" | "vehicles" | "comparison" | "planner";
+
+export interface LatLng { lat: number; lng: number; }
 
 function defaultStartDate(): string {
   const d = new Date();
@@ -23,6 +25,28 @@ export const App: React.FC = () => {
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [darkMode, setDarkMode] = useState(true);
+  const [plannerOrigin, setPlannerOrigin] = useState<LatLng | null>(null);
+  const [plannerDest, setPlannerDest] = useState<LatLng | null>(null);
+
+  const handlePlannerMapClick = (lat: number, lng: number) => {
+    if (!plannerOrigin) {
+      setPlannerOrigin({ lat, lng });
+    } else if (!plannerDest) {
+      setPlannerDest({ lat, lng });
+    } else {
+      // Third click resets: start over with new origin
+      setPlannerOrigin({ lat, lng });
+      setPlannerDest(null);
+    }
+  };
+
+  const handleSectionChange = (s: Section) => {
+    setActiveSection(s);
+    if (s !== "planner") {
+      setPlannerOrigin(null);
+      setPlannerDest(null);
+    }
+  };
 
   const dateRange = useMemo(
     () => ({ startDate, endDate }),
@@ -34,11 +58,11 @@ export const App: React.FC = () => {
       <header className="app-header">
         <h1>Bay Area Transit Intelligence</h1>
         <nav className="app-nav">
-          {(["reliability", "crowding", "safety", "coverage", "demand", "routes", "bunching", "vehicles", "comparison"] as Section[]).map((s) => (
+          {(["reliability", "crowding", "safety", "coverage", "demand", "routes", "bunching", "vehicles", "comparison", "planner"] as Section[]).map((s) => (
             <button
               key={s}
               className={s === activeSection ? "tab active" : "tab"}
-              onClick={() => setActiveSection(s)}
+              onClick={() => handleSectionChange(s)}
             >
               {s === "reliability" && "Transit Reliability"}
               {s === "crowding" && "Crowding Prediction"}
@@ -49,6 +73,7 @@ export const App: React.FC = () => {
               {s === "bunching" && "Bunching"}
               {s === "vehicles" && "Live Vehicles"}
               {s === "comparison" && "Route Compare"}
+              {s === "planner" && "Trip Planner"}
             </button>
           ))}
         </nav>
@@ -70,6 +95,9 @@ export const App: React.FC = () => {
           onEndDateChange={setEndDate}
           onRouteSelect={setSelectedRouteId}
           selectedRouteId={selectedRouteId}
+          plannerOrigin={plannerOrigin}
+          plannerDest={plannerDest}
+          onResetPlanner={() => { setPlannerOrigin(null); setPlannerDest(null); }}
         />
         <MapView
           activeSection={activeSection}
@@ -77,6 +105,9 @@ export const App: React.FC = () => {
           onStopClick={setSelectedStopId}
           selectedRouteId={selectedRouteId}
           darkMode={darkMode}
+          plannerOrigin={plannerOrigin}
+          plannerDest={plannerDest}
+          onPlannerMapClick={handlePlannerMapClick}
         />
         <StopDrawer stopId={selectedStopId} onClose={() => setSelectedStopId(null)} />
       </div>
