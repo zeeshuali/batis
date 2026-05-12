@@ -2,6 +2,7 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { FilterProvider } from "../context/FilterContext";
+import { ThemeProvider } from "../context/ThemeContext";
 import { SelectionProvider } from "../context/SelectionContext";
 import { Operations } from "./Operations";
 
@@ -50,7 +51,7 @@ vi.mock("../lib/api", async () => {
 });
 
 function wrap(ui: React.ReactElement) {
-  return <FilterProvider><SelectionProvider>{ui}</SelectionProvider></FilterProvider>;
+  return <ThemeProvider><FilterProvider><SelectionProvider>{ui}</SelectionProvider></FilterProvider></ThemeProvider>;
 }
 
 describe("Operations", () => {

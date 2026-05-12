@@ -1255,9 +1255,10 @@ body {
   background: rgba(255,255,255,0.8);
   border-color: rgba(15,23,42,0.1);
 }
-[data-theme="light"] .kpi-value { color: #0f172a; }
-[data-theme="light"] .kpi-label { color: #475569; }
-[data-theme="light"] .kpi-sub   { color: #64748b; }
+/* Legacy .kpi-value/.kpi-label/.kpi-sub light-theme overrides removed —
+   the BATIS 2.0 KpiCard primitive uses .kpi-card__value/__label/__sub (BEM)
+   styled via CSS custom properties in tokens.css that already flip on
+   [data-theme="light"]. */
 
 /* Data lists */
 [data-theme="light"] .data-list-item {

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FilterProvider } from "../context/FilterContext";
+import { ThemeProvider } from "../context/ThemeContext";
 import { SelectionProvider, useSelection } from "../context/SelectionContext";
 import { Overview } from "./Overview";
 
@@ -62,11 +63,13 @@ function CapturedRoute() {
 
 function wrap(ui: React.ReactElement) {
   return (
-    <FilterProvider>
-      <SelectionProvider>
-        {ui}
-      </SelectionProvider>
-    </FilterProvider>
+    <ThemeProvider>
+      <FilterProvider>
+        <SelectionProvider>
+          {ui}
+        </SelectionProvider>
+      </FilterProvider>
+    </ThemeProvider>
   );
 }
 

@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FilterProvider } from "../context/FilterContext";
+import { ThemeProvider } from "../context/ThemeContext";
 import { SelectionProvider, useSelection } from "../context/SelectionContext";
 import { Network } from "./Network";
 
@@ -49,7 +50,7 @@ function Captured() {
   return <div data-testid="captured">{selection.routeId ?? "none"}</div>;
 }
 
-function wrap(ui: React.ReactElement) { return <FilterProvider><SelectionProvider>{ui}</SelectionProvider></FilterProvider>; }
+function wrap(ui: React.ReactElement) { return <ThemeProvider><FilterProvider><SelectionProvider>{ui}</SelectionProvider></FilterProvider></ThemeProvider>; }
 
 describe("Network", () => {
   beforeEach(() => vi.clearAllMocks());

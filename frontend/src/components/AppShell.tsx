@@ -68,7 +68,7 @@ export const AppShell: React.FC = () => {
       </main>
 
       <aside className="shell-rail">
-        <div className="shell-rail__placeholder">Ask BATIS — coming in Plan 1c</div>
+        <div className="shell-rail__placeholder">Ask BATIS — coming in Phase 2</div>
       </aside>
 
       <StopDrawer />

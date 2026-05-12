@@ -1,5 +1,6 @@
 import React from "react";
 import { MapView } from "./MapView";
+import { useTheme } from "../context/ThemeContext";
 import type { Section } from "../types";
 import "../sections/sections.css";
 
@@ -10,11 +11,14 @@ export interface SectionMapProps {
   height?: number;
 }
 
-export const SectionMap: React.FC<SectionMapProps> = ({ mapMode, title, height = 420 }) => (
-  <div className="section__panel section__panel--map" style={{ height }}>
-    {title && <h3 className="section__panel-title">{title}</h3>}
-    <div className="section__map-container">
-      <MapView mapMode={mapMode} />
+export const SectionMap: React.FC<SectionMapProps> = ({ mapMode, title, height = 420 }) => {
+  const { theme } = useTheme();
+  return (
+    <div className="section__panel section__panel--map" style={{ height }}>
+      {title && <h3 className="section__panel-title">{title}</h3>}
+      <div className="section__map-container">
+        <MapView mapMode={mapMode} darkMode={theme === "dark"} />
+      </div>
     </div>
-  </div>
-);
+  );
+};
