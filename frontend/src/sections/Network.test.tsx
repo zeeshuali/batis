@@ -38,7 +38,10 @@ vi.mock("../lib/api", async () => {
           { route_id: "72",  route_short_name: "72",  agency_id: "AC" },
         ] };
         if (url.startsWith("/coverage/cells"))   return { data: { features: new Array(50).fill({}) } };
-        if (url.startsWith("/coverage/deserts")) return { data: { features: new Array(3).fill({}) } };
+        if (url.startsWith("/coverage/deserts")) return { data: { features: [
+          { properties: { cell_id: "DRT-1", desert_score: 0.82, nearest_stop_distance_m: 1200 } },
+          { properties: { cell_id: "DRT-2", desert_score: 0.71, nearest_stop_distance_m: 950 } },
+        ] } };
         return { data: [] };
       }),
     },
@@ -59,7 +62,7 @@ describe("Network", () => {
     render(wrap(<Network />));
     await waitFor(() => expect(screen.getByText("51B")).toBeInTheDocument());
     expect(screen.getByText(/Coverage cells/i)).toBeInTheDocument();
-    expect(screen.getByText(/Transit deserts/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Transit deserts/i).length).toBeGreaterThan(0);
   });
 
   it("selecting a route writes routeId", async () => {
@@ -67,5 +70,11 @@ describe("Network", () => {
     await waitFor(() => expect(screen.getByText("51B")).toBeInTheDocument());
     await userEvent.click(screen.getByText("51B"));
     expect(screen.getByTestId("captured").textContent).toBe("51B");
+  });
+
+  it("renders the transit deserts list", async () => {
+    render(wrap(<Network />));
+    await waitFor(() => expect(screen.getByText("DRT-1")).toBeInTheDocument());
+    expect(screen.getByText("DRT-2")).toBeInTheDocument();
   });
 });
