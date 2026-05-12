@@ -2,6 +2,9 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import axios from "axios";
 import type { LatLng, Section } from "../types";
+import { AGENCY_LIST, ALL_AGENCY_IDS } from "../lib/agencies";
+import { useFilters } from "../context/FilterContext";
+import { useSelection } from "../context/SelectionContext";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -18,14 +21,11 @@ function apiHeaders(): Record<string, string> {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface MapViewProps {
-  activeSection: Section;
-  dateRange: { startDate: string; endDate: string };
-  onStopClick: (stopId: string) => void;
-  selectedRouteId: string | null;
-  darkMode: boolean;
-  plannerOrigin: LatLng | null;
-  plannerDest: LatLng | null;
-  onPlannerMapClick: (lat: number, lng: number) => void;
+  /** Which layer set to render. Maps a SectionKey to the legacy Section
+   *  union, e.g. "operations" → "reliability". */
+  mapMode: Section;
+  /** Dark map style is the only style supported today; light parity is Plan 1c. */
+  darkMode?: boolean;
 }
 
 interface LegendItem {
@@ -36,19 +36,25 @@ interface LegendItem {
 
 // ─── Layer / source constants ─────────────────────────────────────────────────
 
-const SOURCES = ["reliability-stops", "safety-stops", "crowding-stops", "demand-stops", "coverage-cells", "deserts", "selected-route", "rt-vehicles", "planner-origin", "planner-dest"] as const;
+const SOURCES = ["reliability-stops", "safety-stops", "crowding-stops", "demand-stops", "coverage-cells", "deserts", "equity-cells", "selected-route", "rt-vehicles", "planner-origin", "planner-dest", "traffic-events", "work-zones", "affected-routes"] as const;
 
 const SECTION_LAYERS: Record<Section, string[]> = {
-  reliability: ["reliability-layer", "reliability-layer-border"],
+  // reliability-heat is included here so toggleLayers hides it when leaving these sections.
+  // Actual visibility within the section is managed by the heatmapMode toggle effect.
+  reliability: ["reliability-layer", "reliability-layer-border", "reliability-heat"],
   safety:      ["safety-layer", "safety-layer-border"],
   crowding:    ["crowding-layer", "crowding-layer-border"],
   demand:      ["demand-layer"],
   coverage:    ["coverage-fill", "coverage-outline", "deserts-fill", "deserts-outline"],
+  equity:      ["equity-fill", "equity-outline"],
   routes:      ["route-shape-line", "route-stops-circle"],
-  bunching:    ["reliability-layer", "reliability-layer-border"],
+  bunching:    ["reliability-layer", "reliability-layer-border", "reliability-heat"],
   vehicles:    ["vehicles-layer"],
   comparison:  [],
   planner:     ["planner-origin-circle", "planner-dest-circle"],
+  ai:          [],
+  benchmarks:  [],
+  traffic:     ["traffic-events-layer", "work-zones-layer", "affected-routes-layer"],
 };
 
 const ALL_LAYERS = Object.values(SECTION_LAYERS).flat();
@@ -96,6 +102,13 @@ const COVERAGE_COLOR: mapboxgl.Expression = [
   8,   "#bae6fd",
 ];
 
+// Agency color lookup for vehicle dots — flat match expression, evaluated on GPU
+const AGENCY_VEHICLE_COLOR: mapboxgl.Expression = [
+  "match", ["coalesce", ["get", "agency_id"], ""],
+  ...AGENCY_LIST.flatMap(a => [a.id, a.color]),
+  "#888888", // fallback
+];
+
 // ─── Legend definitions ───────────────────────────────────────────────────────
 
 const LEGENDS: Record<Section, { title: string; items: LegendItem[] }> = {
@@ -129,9 +142,9 @@ const LEGENDS: Record<Section, { title: string; items: LegendItem[] }> = {
   demand: {
     title: "Forecast Boardings",
     items: [
-      { color: "#a855f7", label: "Low  (< 50)" },
-      { color: "#a855f7", label: "Med  (50–150)" },
-      { color: "#a855f7", label: "High (> 150)" },
+      { color: "#a855f7", label: "High (> 150 boardings)" },
+      { color: "#c084fc", label: "Medium (50–150)" },
+      { color: "#e9d5ff", label: "Low (< 50)" },
     ],
   },
   coverage: {
@@ -141,6 +154,15 @@ const LEGENDS: Record<Section, { title: string; items: LegendItem[] }> = {
       { color: "#1d4ed8", label: "Moderate",          shape: "square" },
       { color: "#0f172a", label: "Low / no service",  shape: "square" },
       { color: "#ef4444", label: "Transit desert",    shape: "square" },
+    ],
+  },
+  equity: {
+    title: "Equity Analysis",
+    items: [
+      { color: "#dc2626", label: "Very high need", shape: "square" },
+      { color: "#f97316", label: "High need",      shape: "square" },
+      { color: "#facc15", label: "Moderate need",  shape: "square" },
+      { color: "#22c55e", label: "Low need",        shape: "square" },
     ],
   },
   routes: {
@@ -160,9 +182,7 @@ const LEGENDS: Record<Section, { title: string; items: LegendItem[] }> = {
   },
   vehicles: {
     title: "Live Vehicles",
-    items: [
-      { color: "#fbbf24", label: "Vehicle position" },
-    ],
+    items: AGENCY_LIST.map(a => ({ color: a.color, label: a.name })),
   },
   comparison: {
     title: "Route Comparison",
@@ -173,6 +193,21 @@ const LEGENDS: Record<Section, { title: string; items: LegendItem[] }> = {
     items: [
       { color: "#22c55e", label: "Origin (click map)" },
       { color: "#ef4444", label: "Destination" },
+    ],
+  },
+  ai: {
+    title: "AI Assistant",
+    items: [],
+  },
+  benchmarks: {
+    title: "Agency Benchmarks",
+    items: [],
+  },
+  traffic: {
+    title: "Traffic",
+    items: [
+      { color: "#ef4444", label: "Active incident" },
+      { color: "#f97316", label: "Work zone" },
     ],
   },
 };
@@ -235,6 +270,17 @@ function coveragePopup(p: Record<string, unknown>): string {
   ]);
 }
 
+function equityPopup(p: Record<string, unknown>): string {
+  const tier = String(p.equity_tier ?? "").replace("_", " ");
+  return popupHTML("Equity Zone", [
+    popupRow("Equity score",    fmt(Number(p.equity_score), 3)),
+    popupRow("Tier",            tier.toUpperCase()),
+    popupRow("Est. population", fmt(Number(p.population), 0)),
+    popupRow("Low-income pop.", fmt(Number(p.low_income_population), 0)),
+    popupRow("No-car HH",       fmt(Number(p.no_car_households), 0)),
+  ]);
+}
+
 function desertPopup(p: Record<string, unknown>): string {
   return popupHTML("Transit Desert", [
     popupRow("Desert score", fmt(Number(p.desert_score), 2)),
@@ -257,6 +303,22 @@ function vehiclePopup(p: Record<string, unknown>): string {
   ]);
 }
 
+function trafficEventPopup(p: Record<string, unknown>): string {
+  return popupHTML(String(p.description ?? p.event_type ?? "Incident"), [
+    popupRow("Type",     String(p.event_type ?? "—")),
+    popupRow("Severity", String(p.severity   ?? "—")),
+    popupRow("Road",     String(p.road_name  ?? "—")),
+  ]);
+}
+
+function workZonePopup(p: Record<string, unknown>): string {
+  return popupHTML(String(p.road_name ?? "Work Zone"), [
+    popupRow("Description", String(p.description ?? "—")),
+    popupRow("Start", p.start_time ? new Date(String(p.start_time)).toLocaleDateString() : "—"),
+    popupRow("End",   p.end_time   ? new Date(String(p.end_time)).toLocaleDateString()   : "—"),
+  ]);
+}
+
 // ─── Map layer popup layer IDs ────────────────────────────────────────────────
 
 const POPUP_LAYERS: Partial<Record<string, (p: Record<string, unknown>) => string>> = {
@@ -265,9 +327,12 @@ const POPUP_LAYERS: Partial<Record<string, (p: Record<string, unknown>) => strin
   "crowding-layer":          crowdingPopup,
   "demand-layer":            demandPopup,
   "coverage-fill":           coveragePopup,
+  "equity-fill":             equityPopup,
   "deserts-fill":            desertPopup,
   "route-stops-circle":      routeStopPopup,
   "vehicles-layer":          vehiclePopup,
+  "traffic-events-layer":    trafficEventPopup,
+  "work-zones-layer":        workZonePopup,
 };
 
 // Stop circle layers that support onStopClick
@@ -292,7 +357,25 @@ function setSource(map: mapboxgl.Map, id: string, data: GeoJSON.FeatureCollectio
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export const MapView: React.FC<MapViewProps> = ({ activeSection, dateRange, onStopClick, selectedRouteId, darkMode, plannerOrigin, plannerDest, onPlannerMapClick }) => {
+export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true }) => {
+  // Read filter + selection from contexts. Local aliases below keep the
+  // rest of the ~1,100-line component compiling unchanged.
+  const { filters } = useFilters();
+  const { selection, setStopId } = useSelection();
+
+  const startDate = filters.startDate;
+  const endDate = filters.endDate;
+  const dateRange = { startDate, endDate };
+  const selectedAgencies = filters.agencies;
+  const selectedRouteId = selection.routeId;
+  const activeSection = mapMode;
+  const onStopClick = setStopId;
+  // Trip planner is out of scope for Plan 1b (see plan §11). Stub to no-op
+  // so the existing planner-related effects don't crash.
+  const plannerOrigin = null as LatLng | null;
+  const plannerDest = null as LatLng | null;
+  const onPlannerMapClick = (_lat: number, _lng: number) => {};
+
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef         = useRef<mapboxgl.Map | null>(null);
   const mapLoadedRef   = useRef(false);
@@ -383,6 +466,13 @@ export const MapView: React.FC<MapViewProps> = ({ activeSection, dateRange, onSt
             setIsEmpty(cells.features.length === 0);
             break;
           }
+          case "equity": {
+            const res = await axios.get(`${API_BASE}/equity/score`, { headers: h });
+            const fc  = res.data as GeoJSON.FeatureCollection;
+            applyGeoJSON("equity-cells", fc);
+            setIsEmpty(fc.features.length === 0);
+            break;
+          }
           case "routes": {
             const routeId = selectedRouteIdRef.current;
             if (routeId) {
@@ -413,7 +503,50 @@ export const MapView: React.FC<MapViewProps> = ({ activeSection, dateRange, onSt
             setIsEmpty(false);
             break;
           }
-          case "planner": {
+          case "traffic": {
+            const [eventsRes, zonesRes, impactRes] = await Promise.all([
+              axios.get(`${API_BASE}/traffic/events`,          { headers: h }),
+              axios.get(`${API_BASE}/traffic/work-zones`,      { headers: h }),
+              axios.get(`${API_BASE}/traffic/transit-impact`,  { headers: h }),
+            ]);
+            const evFC = eventsRes.data as GeoJSON.FeatureCollection;
+            const wzFC = zonesRes.data  as GeoJSON.FeatureCollection;
+            applyGeoJSON("traffic-events", evFC);
+            applyGeoJSON("work-zones",     wzFC);
+
+            // Build affected-routes FeatureCollection from unique route_ids
+            const impactRows = impactRes.data as {
+              route_id: string; alert_level: string;
+            }[];
+            const seen = new Map<string, string>(); // route_id → alert_level
+            for (const row of impactRows) {
+              // CRITICAL takes priority over WARNING/WATCH
+              const prev = seen.get(row.route_id);
+              if (!prev || row.alert_level === "CRITICAL" || (row.alert_level === "WARNING" && prev === "WATCH")) {
+                seen.set(row.route_id, row.alert_level);
+              }
+            }
+            const shapeResults = await Promise.allSettled(
+              [...seen.entries()].map(([rid, level]) =>
+                axios
+                  .get<GeoJSON.FeatureCollection>(`${API_BASE}/routes/${rid}/geo`, { headers: h })
+                  .then(r => ({ fc: r.data, level }))
+              )
+            );
+            const affectedFeatures: GeoJSON.Feature[] = [];
+            for (const r of shapeResults) {
+              if (r.status === "fulfilled") {
+                for (const feat of r.value.fc.features) {
+                  affectedFeatures.push({ ...feat, properties: { ...(feat.properties ?? {}), alert_level: r.value.level } });
+                }
+              }
+            }
+            applyGeoJSON("affected-routes", { type: "FeatureCollection", features: affectedFeatures });
+            setIsEmpty(evFC.features.length === 0 && wzFC.features.length === 0 && affectedFeatures.length === 0);
+            break;
+          }
+          case "planner":
+          case "ai": {
             setIsEmpty(false);
             break;
           }
@@ -542,6 +675,32 @@ export const MapView: React.FC<MapViewProps> = ({ activeSection, dateRange, onSt
       },
     });
 
+    // ── Equity cells ──────────────────────────────────────────────────────
+    map.addLayer({
+      id: "equity-fill", type: "fill", source: "equity-cells",
+      layout: { visibility: "none" },
+      paint: {
+        "fill-color": [
+          "interpolate", ["linear"],
+          ["coalesce", ["get", "equity_score"], 0.5],
+          0.0,  "#22c55e",   // low need → green
+          0.1,  "#86efac",
+          0.15, "#facc15",   // moderate → yellow
+          0.25, "#f97316",   // high → orange
+          0.35, "#dc2626",   // very high → deep red
+        ],
+        "fill-opacity": 0.7,
+      },
+    });
+    map.addLayer({
+      id: "equity-outline", type: "line", source: "equity-cells",
+      layout: { visibility: "none" },
+      paint: {
+        "line-color":   "rgba(148,163,184,0.12)",
+        "line-width":   0.5,
+      },
+    });
+
     // ── Transit deserts ────────────────────────────────────────────────────
     map.addLayer({
       id: "deserts-fill", type: "fill", source: "deserts",
@@ -567,7 +726,7 @@ export const MapView: React.FC<MapViewProps> = ({ activeSection, dateRange, onSt
       id: "vehicles-layer", type: "circle", source: "rt-vehicles",
       layout: { visibility: "none" },
       paint: {
-        "circle-color": "#fbbf24",
+        "circle-color": AGENCY_VEHICLE_COLOR,
         "circle-radius": 7,
         "circle-opacity": 0.9,
         "circle-stroke-width": 2,
@@ -609,6 +768,52 @@ export const MapView: React.FC<MapViewProps> = ({ activeSection, dateRange, onSt
       paint: {
         "circle-color": "#38bdf8", "circle-radius": 6,
         "circle-stroke-width": 2, "circle-stroke-color": "#0f172a",
+      },
+    });
+
+    // ── Traffic incidents ──────────────────────────────────────────────────
+    map.addLayer({
+      id: "traffic-events-layer", type: "circle", source: "traffic-events",
+      layout: { visibility: "none" },
+      paint: {
+        "circle-color": [
+          "match", ["coalesce", ["get", "severity"], ""],
+          "Major",    "#ef4444",
+          "Moderate", "#f97316",
+          /* else */  "#facc15",
+        ],
+        "circle-radius":       10,
+        "circle-opacity":      0.9,
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#0f172a",
+      },
+    });
+
+    // ── Work zones ─────────────────────────────────────────────────────────
+    map.addLayer({
+      id: "work-zones-layer", type: "line", source: "work-zones",
+      layout: { visibility: "none", "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color":     "#f97316",
+        "line-width":     4,
+        "line-opacity":   0.85,
+        "line-dasharray": [2, 2],
+      },
+    });
+
+    // ── Affected routes (traffic impact) ──────────────────────────────────
+    map.addLayer({
+      id: "affected-routes-layer", type: "line", source: "affected-routes",
+      layout: { visibility: "none", "line-join": "round", "line-cap": "round" },
+      paint: {
+        "line-color": [
+          "match", ["coalesce", ["get", "alert_level"], "WATCH"],
+          "CRITICAL", "#ef4444",
+          "WARNING",  "#f97316",
+          /* else */  "#facc15",
+        ],
+        "line-width":   5,
+        "line-opacity": 0.85,
       },
     });
 
@@ -787,6 +992,18 @@ export const MapView: React.FC<MapViewProps> = ({ activeSection, dateRange, onSt
     map.getCanvas().style.cursor = activeSection === "planner" ? "crosshair" : "";
   }, [activeSection]);
 
+  // ── Filter vehicles layer by selected agencies ────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    if (!map.getLayer("vehicles-layer")) return;
+    const allSelected = selectedAgencies.length === ALL_AGENCY_IDS.length;
+    map.setFilter(
+      "vehicles-layer",
+      allSelected ? null : ["in", ["get", "agency_id"], ["literal", selectedAgencies]],
+    );
+  }, [selectedAgencies]);
+
   // ── Toggle heatmap vs dot view for reliability/bunching ──────────────────
   useEffect(() => {
     const map = mapRef.current;
@@ -876,9 +1093,16 @@ export const MapView: React.FC<MapViewProps> = ({ activeSection, dateRange, onSt
 
 function toggleLayers(map: mapboxgl.Map, active: Section) {
   const seen = new Set<string>();
-  for (const [section, layers] of Object.entries(SECTION_LAYERS) as [Section, string[]][]) {
+  for (const [, layers] of Object.entries(SECTION_LAYERS) as [Section, string[]][]) {
     for (const layerId of layers) {
       if (seen.has(layerId)) continue;
+      // reliability-heat visibility is managed exclusively by the heatmapMode effect.
+      // Always hide it here; the effect will show it if needed.
+      if (layerId === "reliability-heat") {
+        if (map.getLayer(layerId)) map.setLayoutProperty(layerId, "visibility", "none");
+        seen.add(layerId);
+        continue;
+      }
       const isActive = SECTION_LAYERS[active].includes(layerId);
       if (map.getLayer(layerId)) {
         map.setLayoutProperty(layerId, "visibility", isActive ? "visible" : "none");
