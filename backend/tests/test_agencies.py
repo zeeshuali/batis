@@ -11,13 +11,18 @@ from sqlalchemy.engine import Connection, Engine
 
 @pytest.fixture(autouse=True)
 def _seed_agencies(test_engine: Engine):
-    """Insert two agency rows for the catalog endpoint to return."""
+    """Insert four agency rows: AC + BART have GTFS data (seeded in
+    conftest), '5E' is a 511 internal admin row (regex-filtered), and
+    'XX' is an operator with no gtfs_routes rows (data-absence filtered).
+    """
     with test_engine.begin() as conn:
         conn.execute(text("""
             INSERT INTO agencies (agency_id, agency_name, agency_type, monitored)
             VALUES
-                ('AC', 'AC Transit', 'bus',  true),
-                ('BA', 'BART',       'rail', true)
+                ('AC', 'AC Transit',       'bus',   true),
+                ('BA', 'BART',             'rail',  true),
+                ('5E', '511 Emergency',    null,    false),
+                ('XX', 'Empty Operator',   'bus',   false)
             ON CONFLICT (agency_id) DO UPDATE
                 SET agency_name = EXCLUDED.agency_name,
                     agency_type = EXCLUDED.agency_type,
@@ -33,11 +38,24 @@ async def test_agencies_endpoint_returns_catalog(client: AsyncClient):
     resp = await client.get("/agencies")
     assert resp.status_code == 200
     rows = resp.json()
-    ids = {r["agency_id"] for r in rows}
-    assert {"AC", "BA"} <= ids
-    ac = next(r for r in rows if r["agency_id"] == "AC")
-    assert ac["agency_name"] == "AC Transit"
-    assert ac["agency_type"] == "bus"
+    by_id = {r["agency_id"]: r for r in rows}
+    assert {"AC", "BA", "5E", "XX"} <= set(by_id)
+    assert by_id["AC"]["agency_name"] == "AC Transit"
+    assert by_id["AC"]["agency_type"] == "bus"
+
+
+@pytest.mark.asyncio
+async def test_agencies_endpoint_tags_has_data(client: AsyncClient):
+    """has_data: true only for agencies with rows in gtfs_routes AND
+    not matching the 511 admin regex.
+    """
+    resp = await client.get("/agencies")
+    assert resp.status_code == 200
+    by_id = {r["agency_id"]: r for r in resp.json()}
+    assert by_id["AC"]["has_data"] is True,   "AC has seeded routes — should be useful"
+    assert by_id["BA"]["has_data"] is False,  "BA has no seeded routes — should be filtered"
+    assert by_id["5E"]["has_data"] is False,  "5E is a 511 admin id — should be filtered"
+    assert by_id["XX"]["has_data"] is False,  "XX has no routes — should be filtered"
 
 
 @pytest.mark.asyncio

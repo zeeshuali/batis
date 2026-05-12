@@ -1066,17 +1066,26 @@ def get_bunching_summary(
 def get_agencies_list(conn: Connection) -> List[Dict[str, Any]]:
     """All rows from the agencies catalog populated by
     five11_operators.run_operators_sync(). Powers GET /agencies.
+
+    Each row carries a `has_data` flag that the UI uses to hide 511.org's
+    internal admin entries (5E, 5F, 5O, 5S) and operators with no rows in
+    gtfs_routes. The flag is computed, not stored — adding agencies to
+    the GTFS feed should make them filter-eligible without a re-sync.
     """
     rows = conn.execute(text("""
         SELECT
-            agency_id,
-            agency_name,
-            agency_type,
-            monitored,
-            agency_url,
-            agency_phone
-        FROM agencies
-        ORDER BY agency_name
+            a.agency_id,
+            a.agency_name,
+            a.agency_type,
+            a.monitored,
+            a.agency_url,
+            a.agency_phone,
+            (
+                EXISTS (SELECT 1 FROM gtfs_routes r WHERE r.agency_id = a.agency_id)
+                AND a.agency_id !~ '^5[A-Z]$'
+            ) AS has_data
+        FROM agencies a
+        ORDER BY a.agency_name
     """)).mappings().all()
     return [dict(r) for r in rows]
 
