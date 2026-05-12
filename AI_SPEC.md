@@ -1,3 +1,4 @@
+
 # BATIS AI System Specification
 **Version:** 0.2 — Approved
 **Date:** 2026-03-18
