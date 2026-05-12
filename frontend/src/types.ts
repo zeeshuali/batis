@@ -27,4 +27,5 @@ export type Section =
   | "ai"
   | "benchmarks"
   | "traffic"
-  | "equity";
+  | "equity"
+  | "workbench";

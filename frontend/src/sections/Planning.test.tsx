@@ -5,8 +5,9 @@ import userEvent from "@testing-library/user-event";
 import { FilterProvider } from "../context/FilterContext";
 import { ThemeProvider } from "../context/ThemeContext";
 import { AgenciesProvider } from "../context/AgenciesContext";
-import { SelectionProvider } from "../context/SelectionContext";
+import { SelectionProvider, useSelection } from "../context/SelectionContext";
 import { Planning } from "./Planning";
+import { Workbench } from "./planning/Workbench";
 
 vi.mock("mapbox-gl", () => ({
   default: {
@@ -41,6 +42,12 @@ vi.mock("../lib/api", async () => {
           ] };
         }
         if (url.startsWith("/bunching/summary"))     return { data: [{ route_id: "51B", bunched_events: 12 }] };
+        if (url.startsWith("/safety/stops/geo")) {
+          return { data: { features: [
+            { geometry: { type: "Point", coordinates: [ -122.265, 37.805 ] },
+              properties: { stop_id: "S1", stop_name: "Telegraph & 19th", safety_score: 11 } },
+          ] } };
+        }
         if (url.startsWith("/safety/stops"))         return { data: [{ stop_id: "S1", stop_name: "Hot Stop", safety_score: 11 }] };
         if (url.startsWith("/crowding/predictions")) return { data: [{ route_id: "51B", crowding_level: "high" }] };
         if (url.startsWith("/coverage/cells")) {
@@ -71,8 +78,10 @@ vi.mock("../lib/api", async () => {
         }
         if (url.startsWith("/equity/score")) {
           return { data: { features: [
-            { properties: { cell_id: "C1", equity_score: 0.3, low_income_population: 800, no_car_households: 120, population: 1200, equity_tier: "very_high" } },
-            { properties: { cell_id: "C2", equity_score: 0.1, low_income_population: 100, no_car_households: 20,  population: 800,  equity_tier: "low"       } },
+            { geometry: { type: "Polygon", coordinates: [[[ -122.27, 37.80 ], [ -122.27, 37.81 ], [ -122.26, 37.81 ], [ -122.26, 37.80 ], [ -122.27, 37.80 ]]] },
+              properties: { cell_id: "C1", equity_score: 0.3, low_income_population: 800, no_car_households: 120, population: 1200, equity_tier: "very_high" } },
+            { geometry: { type: "Polygon", coordinates: [[[ -122.30, 37.85 ], [ -122.30, 37.86 ], [ -122.29, 37.86 ], [ -122.29, 37.85 ], [ -122.30, 37.85 ]]] },
+              properties: { cell_id: "C2", equity_score: 0.1, low_income_population: 100, no_car_households: 20,  population: 800,  equity_tier: "low"       } },
           ] } };
         }
         return { data: [] };
@@ -164,5 +173,40 @@ describe("Planning", () => {
     // same value here because C1 is the only high-need cell and it has
     // poor access, so getAllByText returns two matches.
     expect(screen.getAllByText("1.2k").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("Workbench sub-page shows the empty-state until a point is set", async () => {
+    window.location.hash = "#planning?sub=workbench";
+    render(wrap(<Planning />));
+    // Empty-state hint copy is unique to the side panel (the subtitle uses
+    // different wording).
+    await waitFor(() =>
+      expect(screen.getByText(/The Workbench summarises stops, coverage, and equity/i)).toBeInTheDocument()
+    );
+  });
+
+  it("Workbench renders the recommendation + nearby stops once a point is set", async () => {
+    window.location.hash = "#planning?sub=workbench";
+
+    // Driver flips selection.workbenchPoint to the same lat/lng as the
+    // mocked S1 stop, exercising the haversine ranking path inside the
+    // component without trying to dispatch a synthetic Mapbox click.
+    const Driver: React.FC = () => {
+      const { setWorkbenchPoint } = useSelection();
+      React.useEffect(() => {
+        setWorkbenchPoint({ lat: 37.805, lng: -122.265 });
+      }, [setWorkbenchPoint]);
+      return null;
+    };
+
+    render(wrap(<><Driver /><Workbench /></>));
+    // Wait for the async /safety/stops/geo fetch to resolve and the stop
+    // to surface in the nearby list (it's at the click point, distance 0).
+    await waitFor(() => expect(screen.getByText(/Telegraph & 19th/i)).toBeInTheDocument());
+    expect(screen.getByText(/Service recommendation/i)).toBeInTheDocument();
+    // Inspection-point coords land in the meta line.
+    expect(screen.getByText(/37\.80500/)).toBeInTheDocument();
+    // Clear-pin button is visible.
+    expect(screen.getByRole("button", { name: /Clear pin/i })).toBeInTheDocument();
   });
 });

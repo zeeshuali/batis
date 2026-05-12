@@ -40,7 +40,7 @@ interface LegendItem {
 
 // ─── Layer / source constants ─────────────────────────────────────────────────
 
-const SOURCES = ["reliability-stops", "safety-stops", "crowding-stops", "demand-stops", "coverage-cells", "deserts", "equity-cells", "selected-route", "rt-vehicles", "planner-origin", "planner-dest", "traffic-events", "work-zones", "affected-routes"] as const;
+const SOURCES = ["reliability-stops", "safety-stops", "crowding-stops", "demand-stops", "coverage-cells", "deserts", "equity-cells", "selected-route", "rt-vehicles", "planner-origin", "planner-dest", "traffic-events", "work-zones", "affected-routes", "workbench-point"] as const;
 
 const SECTION_LAYERS: Record<Section, string[]> = {
   // reliability-heat is included here so toggleLayers hides it when leaving these sections.
@@ -59,6 +59,9 @@ const SECTION_LAYERS: Record<Section, string[]> = {
   ai:          [],
   benchmarks:  [],
   traffic:     ["traffic-events-layer", "work-zones-layer", "affected-routes-layer"],
+  // Workbench piggybacks on the coverage backdrop and adds a click-derived
+  // inspection marker that the Planning → Workbench side panel reads from.
+  workbench:   ["coverage-fill", "coverage-outline", "workbench-radius", "workbench-point-circle"],
 };
 
 const ALL_LAYERS = Object.values(SECTION_LAYERS).flat();
@@ -205,6 +208,13 @@ const LEGENDS: Record<Section, { title: string; items: LegendItem[] }> = {
     items: [
       { color: "#ef4444", label: "Active incident" },
       { color: "#f97316", label: "Work zone" },
+    ],
+  },
+  workbench: {
+    title: "Workbench",
+    items: [
+      { color: "#3b82f6", label: "Click to inspect a point" },
+      { color: "#bae6fd", label: "Coverage cells (backdrop)", shape: "square" },
     ],
   },
 };
@@ -358,7 +368,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   // Read filter + selection from contexts. Local aliases below keep the
   // rest of the ~1,100-line component compiling unchanged.
   const { filters } = useFilters();
-  const { selection, setStopId, setPlannerOrigin, setPlannerDest, resetPlanner } = useSelection();
+  const { selection, setStopId, setPlannerOrigin, setPlannerDest, resetPlanner, setWorkbenchPoint } = useSelection();
   const { agencies } = useAgencies();
 
   const startDate = filters.startDate;
@@ -380,6 +390,8 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
       setPlannerOrigin({ lat, lng });
     }
   };
+  const workbenchPoint: LatLng | null = selection.workbenchPoint;
+  const onWorkbenchMapClick = (lat: number, lng: number) => setWorkbenchPoint({ lat, lng });
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef         = useRef<mapboxgl.Map | null>(null);
@@ -393,6 +405,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   const dateRangeRef          = useRef(dateRange);
   const onStopClickRef        = useRef(onStopClick);
   const onPlannerMapClickRef  = useRef(onPlannerMapClick);
+  const onWorkbenchMapClickRef = useRef(onWorkbenchMapClick);
   const isFirstRenderRef      = useRef(true);
 
   // Keep refs in sync with props/state
@@ -402,6 +415,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   useEffect(() => { dateRangeRef.current = dateRange; }, [dateRange]);
   useEffect(() => { onStopClickRef.current = onStopClick; }, [onStopClick]);
   useEffect(() => { onPlannerMapClickRef.current = onPlannerMapClick; }, [onPlannerMapClick]);
+  useEffect(() => { onWorkbenchMapClickRef.current = onWorkbenchMapClick; }, [onWorkbenchMapClick]);
 
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState<string | null>(null);
@@ -553,6 +567,18 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
           case "planner":
           case "ai": {
             setIsEmpty(false);
+            break;
+          }
+          case "workbench": {
+            // Workbench renders the coverage backdrop — fetch the hex grid
+            // and the deserts overlay just like the coverage section does.
+            const [cellsR, desertsR] = await Promise.all([
+              axios.get<GeoJSON.FeatureCollection>(`${API_BASE}/coverage/cells`,   { headers: h }),
+              axios.get<GeoJSON.FeatureCollection>(`${API_BASE}/coverage/deserts`, { headers: h }),
+            ]);
+            applyGeoJSON("coverage-cells", cellsR.data);
+            applyGeoJSON("deserts", desertsR.data);
+            setIsEmpty(cellsR.data.features.length === 0 && desertsR.data.features.length === 0);
             break;
           }
         }
@@ -849,10 +875,43 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
       },
     });
 
+    // ── Workbench inspection marker ────────────────────────────────────────
+    // Two layers from one source: a large translucent ring representing
+    // the ~500 m inspection radius, and a small solid dot at the click point.
+    map.addLayer({
+      id: "workbench-radius", type: "circle", source: "workbench-point",
+      layout: { visibility: "none" },
+      paint: {
+        "circle-color": "#3b82f6",
+        "circle-opacity": 0.10,
+        "circle-radius": 60,           // visual approximation; actual filter is haversine in JS
+        "circle-stroke-width": 1,
+        "circle-stroke-color": "#3b82f6",
+        "circle-stroke-opacity": 0.5,
+      },
+    });
+    map.addLayer({
+      id: "workbench-point-circle", type: "circle", source: "workbench-point",
+      layout: { visibility: "none" },
+      paint: {
+        "circle-color": "#3b82f6",
+        "circle-radius": 7,
+        "circle-stroke-width": 3,
+        "circle-stroke-color": "#fff",
+        "circle-opacity": 0.95,
+      },
+    });
+
     // ── Planner map click ──────────────────────────────────────────────────
     map.on("click", (e) => {
       if (activeSectionRef.current !== "planner") return;
       onPlannerMapClickRef.current(e.lngLat.lat, e.lngLat.lng);
+    });
+
+    // ── Workbench map click ────────────────────────────────────────────────
+    map.on("click", (e) => {
+      if (activeSectionRef.current !== "workbench") return;
+      onWorkbenchMapClickRef.current(e.lngLat.lat, e.lngLat.lng);
     });
 
     // ── Hover interactions (popups only) ───────────────────────────────────
@@ -1048,11 +1107,22 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
     setSource(map, "planner-dest", fc);
   }, [plannerDest]);
 
+  // ── Update workbench inspection marker source ────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    const fc: GeoJSON.FeatureCollection = workbenchPoint
+      ? { type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [workbenchPoint.lng, workbenchPoint.lat] }, properties: {} }] }
+      : emptyFC();
+    setSource(map, "workbench-point", fc);
+  }, [workbenchPoint]);
+
   // ── Crosshair cursor in planner mode ─────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoadedRef.current) return;
-    map.getCanvas().style.cursor = activeSection === "planner" ? "crosshair" : "";
+    map.getCanvas().style.cursor =
+      (activeSection === "planner" || activeSection === "workbench") ? "crosshair" : "";
   }, [activeSection]);
 
   // ── Filter vehicles layer by selected agencies ────────────────────────────

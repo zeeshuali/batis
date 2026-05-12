@@ -7,33 +7,39 @@ export interface Selection {
   hoveredStopId:  string | null;
   plannerOrigin:  LatLng | null;
   plannerDest:    LatLng | null;
+  /** Inspection point for the Planning → Workbench sub-page.
+   *  Set by clicking the map when activeSection === "workbench". */
+  workbenchPoint: LatLng | null;
 }
 
 interface SelectionApi {
   selection: Selection;
-  setRouteId:        (id: string | null) => void;
-  setStopId:         (id: string | null) => void;
-  setHoveredStopId:  (id: string | null) => void;
-  setPlannerOrigin:  (p: LatLng | null) => void;
-  setPlannerDest:    (p: LatLng | null) => void;
-  resetPlanner:      () => void;
+  setRouteId:         (id: string | null) => void;
+  setStopId:          (id: string | null) => void;
+  setHoveredStopId:   (id: string | null) => void;
+  setPlannerOrigin:   (p: LatLng | null) => void;
+  setPlannerDest:     (p: LatLng | null) => void;
+  setWorkbenchPoint:  (p: LatLng | null) => void;
+  resetPlanner:       () => void;
   clear: () => void;
 }
 
 const SelectionContext = createContext<SelectionApi | null>(null);
 
 export const SelectionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [routeId,       setRouteIdState]       = useState<string | null>(null);
-  const [stopId,        setStopIdState]        = useState<string | null>(null);
-  const [hoveredStopId, setHoveredStopIdState] = useState<string | null>(null);
-  const [plannerOrigin, setPlannerOriginState] = useState<LatLng | null>(null);
-  const [plannerDest,   setPlannerDestState]   = useState<LatLng | null>(null);
+  const [routeId,        setRouteIdState]        = useState<string | null>(null);
+  const [stopId,         setStopIdState]         = useState<string | null>(null);
+  const [hoveredStopId,  setHoveredStopIdState]  = useState<string | null>(null);
+  const [plannerOrigin,  setPlannerOriginState]  = useState<LatLng | null>(null);
+  const [plannerDest,    setPlannerDestState]    = useState<LatLng | null>(null);
+  const [workbenchPoint, setWorkbenchPointState] = useState<LatLng | null>(null);
 
-  const setRouteId       = useCallback((id: string | null) => setRouteIdState(id), []);
-  const setStopId        = useCallback((id: string | null) => setStopIdState(id), []);
-  const setHoveredStopId = useCallback((id: string | null) => setHoveredStopIdState(id), []);
-  const setPlannerOrigin = useCallback((p: LatLng | null) => setPlannerOriginState(p), []);
-  const setPlannerDest   = useCallback((p: LatLng | null) => setPlannerDestState(p), []);
+  const setRouteId        = useCallback((id: string | null) => setRouteIdState(id), []);
+  const setStopId         = useCallback((id: string | null) => setStopIdState(id), []);
+  const setHoveredStopId  = useCallback((id: string | null) => setHoveredStopIdState(id), []);
+  const setPlannerOrigin  = useCallback((p: LatLng | null) => setPlannerOriginState(p), []);
+  const setPlannerDest    = useCallback((p: LatLng | null) => setPlannerDestState(p), []);
+  const setWorkbenchPoint = useCallback((p: LatLng | null) => setWorkbenchPointState(p), []);
   const resetPlanner = useCallback(() => {
     setPlannerOriginState(null);
     setPlannerDestState(null);
@@ -44,20 +50,22 @@ export const SelectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setHoveredStopIdState(null);
     setPlannerOriginState(null);
     setPlannerDestState(null);
+    setWorkbenchPointState(null);
   }, []);
 
   const value = useMemo<SelectionApi>(
     () => ({
-      selection: { routeId, stopId, hoveredStopId, plannerOrigin, plannerDest },
+      selection: { routeId, stopId, hoveredStopId, plannerOrigin, plannerDest, workbenchPoint },
       setRouteId,
       setStopId,
       setHoveredStopId,
       setPlannerOrigin,
       setPlannerDest,
+      setWorkbenchPoint,
       resetPlanner,
       clear,
     }),
-    [routeId, stopId, hoveredStopId, plannerOrigin, plannerDest, setRouteId, setStopId, setHoveredStopId, setPlannerOrigin, setPlannerDest, resetPlanner, clear]
+    [routeId, stopId, hoveredStopId, plannerOrigin, plannerDest, workbenchPoint, setRouteId, setStopId, setHoveredStopId, setPlannerOrigin, setPlannerDest, setWorkbenchPoint, resetPlanner, clear]
   );
 
   return <SelectionContext.Provider value={value}>{children}</SelectionContext.Provider>;
