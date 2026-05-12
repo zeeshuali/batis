@@ -1,19 +1,10 @@
 import React from "react";
 import { useFilters } from "../context/FilterContext";
-import { useAgencies } from "../context/AgenciesContext";
-import { agencyColor } from "../lib/agencies";
+import { AgencyCombobox } from "./AgencyCombobox";
 import "./FilterBar.css";
 
 export const FilterBar: React.FC = () => {
-  const { filters, setDateRange, setAgencies, setSearch } = useFilters();
-  const { agencies, loading: agenciesLoading } = useAgencies();
-
-  const toggleAgency = (id: string) => {
-    const next = filters.agencies.includes(id)
-      ? filters.agencies.filter(a => a !== id)
-      : [...filters.agencies, id];
-    setAgencies(next);
-  };
+  const { filters, setDateRange, setSearch } = useFilters();
 
   return (
     <div className="filter-bar shell-filterbar">
@@ -36,28 +27,7 @@ export const FilterBar: React.FC = () => {
         </label>
       </div>
 
-      <div className="filter-bar__pills">
-        {agenciesLoading && agencies.length === 0 ? (
-          <span className="filter-bar__pill-placeholder">Loading agencies…</span>
-        ) : (
-          agencies.map(a => {
-            const active = filters.agencies.includes(a.agency_id);
-            const color  = agencyColor(a.agency_id);
-            return (
-              <button
-                key={a.agency_id}
-                type="button"
-                className={`agency-pill ${active ? "agency-pill--active" : ""}`}
-                style={active ? { borderColor: color, color } : undefined}
-                onClick={() => toggleAgency(a.agency_id)}
-                title={a.agency_name}
-              >
-                {a.agency_id}
-              </button>
-            );
-          })
-        )}
-      </div>
+      <AgencyCombobox />
 
       <input
         type="search"

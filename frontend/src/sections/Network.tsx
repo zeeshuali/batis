@@ -97,7 +97,7 @@ export const Network: React.FC = () => {
       )}
 
       <div className="section__kpi-strip">
-        <KpiCard label="Total routes"    value={String(routes.length)} sub={`${filters.agencies.length || agencies.length} agencies`} />
+        <KpiCard label="Total routes"    value={String(routes.length)} sub={`${filters.agencies.length || agencies.filter(a => a.has_data !== false).length} agencies`} />
         <KpiCard label="Coverage cells"  value={cellCount   === null ? "—" : String(cellCount)} />
         <KpiCard label="Transit deserts" value={desertCount === null ? "—" : String(desertCount)} deltaIsGood={false} />
         <KpiCard label="In view"         value={String(filtered.length)} sub="after filters" />

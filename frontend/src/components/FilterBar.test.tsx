@@ -14,8 +14,8 @@ vi.mock("../lib/api", async () => {
       get: vi.fn(async (url: string) => {
         if (url === "/agencies") {
           return { data: [
-            { agency_id: "AC", agency_name: "AC Transit" },
-            { agency_id: "BA", agency_name: "BART" },
+            { agency_id: "AC", agency_name: "AC Transit", monitored: true, has_data: true },
+            { agency_id: "BA", agency_name: "BART",       monitored: true, has_data: true },
           ] };
         }
         return { data: [] };
@@ -41,6 +41,11 @@ describe("FilterBar", () => {
     expect(screen.getByPlaceholderText(/route/i)).toBeInTheDocument();
   });
 
+  it("renders the agencies combobox with the default 'All agencies' label", () => {
+    render(wrap(<FilterBar />));
+    expect(screen.getByText(/All agencies/i)).toBeInTheDocument();
+  });
+
   it("updates the FilterContext when search is typed", async () => {
     render(wrap(<><FilterBar /><Probe /></>));
     const input = screen.getByPlaceholderText(/route/i);
@@ -48,12 +53,13 @@ describe("FilterBar", () => {
     expect(screen.getByTestId("probe").textContent).toMatch(/\|51B$/);
   });
 
-  it("toggles agencies when an agency pill is clicked", async () => {
+  it("opens the combobox panel and toggles an agency via its checkbox", async () => {
     render(wrap(<><FilterBar /><Probe /></>));
-    // With the new "[] means all" semantic, no pill is initially active.
-    // Clicking "AC" adds it to the (otherwise empty) selection.
-    const acPill = await screen.findByRole("button", { name: /^AC( |$)/ });
-    await userEvent.click(acPill);
+    // Open the dropdown.
+    await userEvent.click(screen.getByRole("button", { name: /Agencies/i }));
+    // The list contains AC + BART rows. Click the checkbox for AC.
+    const acRow = (await screen.findByText("AC Transit")).closest("label")!;
+    await userEvent.click(acRow.querySelector('input[type="checkbox"]')!);
     expect(screen.getByTestId("probe").textContent).toMatch(/\|AC\|/);
   });
 });

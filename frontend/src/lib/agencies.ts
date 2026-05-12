@@ -27,6 +27,10 @@ export interface AgencyMeta {
   monitored?: boolean | null;
   agency_url?: string | null;
   agency_phone?: string | null;
+  /** True for agencies with GTFS rows AND not a 511 admin id (5E/5F/5O/5S).
+   *  Computed by the backend in GET /agencies. UI hides has_data=false by
+   *  default; toggleable via the combobox's "Show inactive" switch. */
+  has_data?: boolean;
 }
 
 /** Deterministic 32-bit djb2 hash of a string — stable across reloads. */

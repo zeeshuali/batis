@@ -1131,7 +1131,12 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   const legend: { title: string; items: LegendItem[] } = activeSection === "vehicles"
     ? {
         title: "Live Vehicles",
-        items: agencies.map<LegendItem>(a => ({ color: agencyColor(a.agency_id), label: a.agency_name })),
+        // Only agencies with operational data show up on the live-vehicles
+        // map — rendering all 47 catalog rows here would fill the legend
+        // with operators we have no vehicle positions for.
+        items: agencies
+          .filter(a => a.has_data !== false)
+          .map<LegendItem>(a => ({ color: agencyColor(a.agency_id), label: a.agency_name })),
       }
     : LEGENDS[activeSection];
 

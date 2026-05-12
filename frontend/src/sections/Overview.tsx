@@ -94,7 +94,7 @@ export const Overview: React.FC = () => {
       )}
 
       <div className="section__kpi-strip">
-        <KpiCard label="Routes"      value={routeCount === null ? "—" : String(routeCount)} sub={`across ${filters.agencies.length || agencies.length} agencies`} />
+        <KpiCard label="Routes"      value={routeCount === null ? "—" : String(routeCount)} sub={`across ${filters.agencies.length || agencies.filter(a => a.has_data !== false).length} agencies`} />
         <KpiCard label="Network OTP" value={fmtPct(networkOtp)} />
         <KpiCard label="Avg delay"   value={avgDelay  === null ? "—" : fmtMin(avgDelay)} deltaIsGood={false} />
         <KpiCard label="Hot stops"   value={hotStops  === null ? "—" : String(hotStops)} sub="safety score ≥ 8" deltaIsGood={false} />
