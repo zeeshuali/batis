@@ -47,7 +47,11 @@ def compute_stop_safety_scores(
               LEFT JOIN safety_incidents_raw i
                 ON s.geom IS NOT NULL
                AND i.geom IS NOT NULL
-               -- Cast to ::geography so :buffer_meters is treated as metres, not degrees
+               -- Two-step PostGIS pattern: fast GIST-indexed degree prefilter
+               -- (~0.0025° ≈ 280 m at lat 37.8, slightly generous) followed by
+               -- the exact metric check. Casting both sides to ::geography
+               -- alone bypasses the GIST index on geom and scans 17k × 30k rows.
+               AND ST_DWithin(s.geom, i.geom, :buffer_degrees)
                AND ST_DWithin(s.geom::geography, i.geom::geography, :buffer_meters)
               GROUP BY s.stop_id
             ),
@@ -95,10 +99,18 @@ def compute_stop_safety_scores(
             """
         )
 
+        # Conservative metres-to-degrees conversion for the GIST prefilter.
+        # 73,000 m/° is roughly the worst-case (longitude) at Bay Area latitudes
+        # with a 20% safety margin, so a candidate within :buffer_meters cannot
+        # be filtered out by the prefilter — the exact ::geography check then
+        # rejects any false positives.
+        buffer_degrees = buffer_meters / 73000.0
+
         conn.execute(
             sql,
             {
                 "buffer_meters": buffer_meters,
+                "buffer_degrees": buffer_degrees,
                 "crime_weight": crime_weight,
                 "collision_weight": collision_weight,
                 "lighting_weight": lighting_weight,
