@@ -75,4 +75,14 @@ describe("AppShell", () => {
     render(wrap(<AppShell />));
     expect(screen.getByText(/Ask BATIS/i)).toBeInTheDocument();
   });
+
+  it("mounts the alerts banner area and the stop drawer container", () => {
+    render(wrap(<AppShell />));
+    // The alerts banner renders an empty container by default (no alerts in test);
+    // assert the grid area exists by class.
+    expect(document.querySelector(".shell-alerts")).toBeInTheDocument();
+    // StopDrawer renders nothing when stopId is null — verify there's no
+    // "open" drawer overlay.
+    expect(document.querySelector(".stop-drawer--open")).not.toBeInTheDocument();
+  });
 });

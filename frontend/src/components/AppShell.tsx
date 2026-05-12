@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import { FilterBar } from "./FilterBar";
+import { AlertsBanner } from "./AlertsBanner";
+import { StopDrawer } from "./StopDrawer";
 import { Overview } from "../sections/Overview";
 import { Operations } from "../sections/Operations";
 import { Network } from "../sections/Network";
@@ -39,6 +41,10 @@ export const AppShell: React.FC = () => {
         </nav>
       </header>
 
+      <div className="shell-alerts">
+        <AlertsBanner />
+      </div>
+
       <FilterBar />
 
       <main className="shell-main">
@@ -52,6 +58,8 @@ export const AppShell: React.FC = () => {
       <aside className="shell-rail">
         <div className="shell-rail__placeholder">Ask BATIS — coming in Plan 1c</div>
       </aside>
+
+      <StopDrawer />
     </div>
   );
 };
