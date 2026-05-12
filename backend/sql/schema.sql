@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS gtfs_feeds (
 
 CREATE TABLE IF NOT EXISTS gtfs_routes (
   route_id text PRIMARY KEY,
-  agency_id text,
+  agency_id text DEFAULT 'AC',
   route_short_name text,
   route_long_name text,
   route_desc text,
@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS gtfs_routes (
 
 CREATE TABLE IF NOT EXISTS gtfs_stops (
   stop_id text PRIMARY KEY,
+  agency_id text DEFAULT 'AC',
   stop_code text,
   stop_name text,
   stop_desc text,
@@ -49,6 +50,7 @@ CREATE INDEX IF NOT EXISTS idx_gtfs_stops_geom
 
 CREATE TABLE IF NOT EXISTS gtfs_trips (
   trip_id text PRIMARY KEY,
+  agency_id text DEFAULT 'AC',
   route_id text NOT NULL REFERENCES gtfs_routes(route_id),
   service_id text,
   trip_headsign text,
@@ -60,6 +62,7 @@ CREATE TABLE IF NOT EXISTS gtfs_trips (
 
 CREATE TABLE IF NOT EXISTS gtfs_stop_times (
   trip_id text NOT NULL REFERENCES gtfs_trips(trip_id),
+  agency_id text DEFAULT 'AC',
   arrival_time text,
   departure_time text,
   stop_id text NOT NULL REFERENCES gtfs_stops(stop_id),
@@ -85,6 +88,7 @@ CREATE TABLE IF NOT EXISTS gtfs_shapes (
 -- Optional pre-aggregated shapes as LineStrings for map rendering
 CREATE TABLE IF NOT EXISTS gtfs_shape_geoms (
   shape_id text PRIMARY KEY,
+  agency_id text DEFAULT 'AC',
   geom geometry(LineString, 4326)
 );
 
@@ -96,6 +100,7 @@ CREATE INDEX IF NOT EXISTS idx_gtfs_shape_geoms_geom
 
 CREATE TABLE IF NOT EXISTS rt_vehicle_positions_raw (
   id bigserial PRIMARY KEY,
+  agency_id text DEFAULT 'AC',
   vehicle_id text,
   trip_id text,
   route_id text,
@@ -119,6 +124,7 @@ CREATE INDEX IF NOT EXISTS idx_rt_vehicle_positions_raw_geom
 
 CREATE TABLE IF NOT EXISTS ops_trip_events (
   id bigserial PRIMARY KEY,
+  agency_id text DEFAULT 'AC',
   service_date date NOT NULL,
   trip_id text NOT NULL,
   route_id text NOT NULL,
@@ -145,6 +151,7 @@ CREATE INDEX IF NOT EXISTS idx_ops_trip_events_delay_date
 
 CREATE TABLE IF NOT EXISTS ops_headways (
   id bigserial PRIMARY KEY,
+  agency_id text DEFAULT 'AC',
   service_date date NOT NULL,
   route_id text NOT NULL,
   direction_id integer,
@@ -312,6 +319,112 @@ CREATE TABLE IF NOT EXISTS stop_features (
   features_version text,
   updated_at timestamptz DEFAULT now()
 );
+
+-- === AI / RAG tables ===
+
+-- Enable pgvector — must come before the ai_embeddings table DDL
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE IF NOT EXISTS ai_embeddings (
+  id            bigserial PRIMARY KEY,
+  content_type  text NOT NULL,     -- 'route', 'stop', 'alert', 'ops_summary'
+  content_id    text NOT NULL,     -- route_id, stop_id, etc.
+  content_text  text NOT NULL,     -- human-readable description sent to LLM as context
+  embedding     vector(384),       -- all-MiniLM-L6-v2 output dimension
+  updated_at    timestamptz DEFAULT now(),
+  UNIQUE (content_type, content_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_embeddings_vector
+  ON ai_embeddings
+  USING ivfflat (embedding vector_cosine_ops)
+  WITH (lists = 50);
+
+CREATE INDEX IF NOT EXISTS idx_ai_embeddings_type
+  ON ai_embeddings (content_type);
+
+-- === Sprint 1/2/3 tables (multi-agency + traffic/toll) ===
+
+-- Stop Observations — 511.org historical archive (actual vs. scheduled arrivals)
+CREATE TABLE IF NOT EXISTS stop_observations (
+    id                bigserial PRIMARY KEY,
+    service_date      date NOT NULL,
+    agency_id         text NOT NULL,
+    trip_id           text NOT NULL,
+    route_id          text,
+    stop_id           text NOT NULL,
+    scheduled_arrival timestamptz,
+    observed_arrival  timestamptz,
+    delay_seconds     integer GENERATED ALWAYS AS (
+        CASE
+            WHEN observed_arrival IS NOT NULL AND scheduled_arrival IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (observed_arrival - scheduled_arrival))::integer
+            ELSE NULL
+        END
+    ) STORED,
+    -- timestamptz + interval is STABLE (interval months/days depend on tz), so
+    -- compare interval-against-interval: subtraction of two timestamptzs is
+    -- IMMUTABLE, and the resulting interval compares immutably to a constant.
+    on_time           boolean GENERATED ALWAYS AS (
+        (observed_arrival - scheduled_arrival) <= INTERVAL '5 minutes'
+    ) STORED,
+    created_at        timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS so_date_agency_idx  ON stop_observations(service_date, agency_id);
+CREATE INDEX IF NOT EXISTS so_agency_route_idx ON stop_observations(agency_id, route_id);
+CREATE INDEX IF NOT EXISTS so_stop_idx         ON stop_observations(stop_id);
+CREATE INDEX IF NOT EXISTS so_trip_idx         ON stop_observations(trip_id);
+
+-- Traffic Events — 511.org /traffic/events API
+CREATE TABLE IF NOT EXISTS traffic_events (
+    event_id    text PRIMARY KEY,
+    event_type  text,
+    severity    text,
+    geom        geometry(Point, 4326),
+    description text,
+    road_name   text,
+    start_time  timestamptz,
+    end_time    timestamptz,
+    created_at  timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS traffic_events_geom_idx   ON traffic_events USING gist(geom);
+CREATE INDEX IF NOT EXISTS traffic_events_active_idx ON traffic_events(start_time, end_time);
+
+-- Work Zones — 511.org /traffic/wzdx API
+CREATE TABLE IF NOT EXISTS work_zones (
+    zone_id     text PRIMARY KEY,
+    geom        geometry(MultiLineString, 4326),
+    road_name   text,
+    description text,
+    start_time  timestamptz,
+    end_time    timestamptz,
+    created_at  timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS work_zones_geom_idx ON work_zones USING gist(geom);
+
+-- Toll Rates — 511.org /toll/programs API
+CREATE TABLE IF NOT EXISTS toll_rates (
+    id            bigserial PRIMARY KEY,
+    facility_id   text NOT NULL,
+    facility_name text,
+    direction     text,
+    vehicle_class text DEFAULT 'standard',
+    rate_usd      numeric(6,2),
+    valid_from    timestamptz,
+    valid_to      timestamptz,
+    created_at    timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS toll_rates_facility_idx ON toll_rates(facility_id, valid_from);
+
+-- Agency_id indexes on existing tables (for multi-agency query performance)
+CREATE INDEX IF NOT EXISTS gtfs_routes_agency_idx     ON gtfs_routes(agency_id);
+CREATE INDEX IF NOT EXISTS gtfs_stops_agency_idx      ON gtfs_stops(agency_id);
+CREATE INDEX IF NOT EXISTS ops_trip_events_agency_idx ON ops_trip_events(agency_id);
+CREATE INDEX IF NOT EXISTS rt_positions_agency_idx    ON rt_vehicle_positions_raw(agency_id);
 
 -- === Data health views ===
 
