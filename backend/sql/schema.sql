@@ -430,6 +430,22 @@ CREATE INDEX IF NOT EXISTS gtfs_stops_agency_idx      ON gtfs_stops(agency_id);
 CREATE INDEX IF NOT EXISTS ops_trip_events_agency_idx ON ops_trip_events(agency_id);
 CREATE INDEX IF NOT EXISTS rt_positions_agency_idx    ON rt_vehicle_positions_raw(agency_id);
 
+-- === Agencies catalog (Phase A — single source of truth, mirrors migration 002) ===
+-- Sourced from 511.org /transit/operators (or seeded with 8 hand-curated rows
+-- when FIVE11_API_KEY is unset).
+CREATE TABLE IF NOT EXISTS agencies (
+    agency_id       text PRIMARY KEY,
+    agency_name     text NOT NULL,
+    agency_url      text,
+    agency_phone    text,
+    agency_timezone text,
+    agency_type     text,
+    monitored       boolean,
+    last_synced_at  timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agencies_monitored ON agencies (monitored);
+
 -- === Data health views ===
 
 DO $$

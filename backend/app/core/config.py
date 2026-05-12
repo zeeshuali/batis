@@ -12,11 +12,10 @@ class Settings(BaseSettings):
     gtfs_rt_trip_updates_url: str | None = None
 
     # 511.org regional API
+    # The list of agencies to ingest now lives in the `agencies` table
+    # (populated by five11_operators.run_operators_sync) — see Phase A-1.
     five11_api_key: str | None = None
     five11_base_url: str = "https://api.511.org"
-    five11_agencies: list[str] = [
-        "AC", "BA", "SF", "CT", "SM", "GG", "WH", "VN", "SC", "SR", "CC", "MA", "WC"
-    ]
 
     # Backend API key (X-API-Key header for protected endpoints)
     backend_api_key: str | None = None

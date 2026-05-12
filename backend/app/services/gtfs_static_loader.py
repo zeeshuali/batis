@@ -306,13 +306,33 @@ def load_agency_gtfs(agency_id: str) -> None:
 
 def load_all_agencies_gtfs() -> dict:
     """
-    Download and load GTFS static data for all configured Bay Area agencies via 511.org.
-    Each agency is loaded in its own transaction — one failure does not abort the others.
-    Returns {agency_id: "ok" | "failed: <reason>"}.
+    Download and load GTFS static data for all monitored Bay Area agencies via 511.org.
+    The agency list is read from the `agencies` table (single source of truth,
+    populated by five11_operators.run_operators_sync). If that table is empty
+    or missing, fall back to a short hardcoded list of 3 anchor agencies.
+
+    Each agency is loaded in its own transaction — one failure does not abort
+    the others. Returns {agency_id: "ok" | "failed: <reason>"}.
     """
-    settings = get_settings()
+    engine = get_engine()
+    agency_ids: list[str] = []
+    try:
+        with engine.begin() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT agency_id FROM agencies WHERE monitored = true ORDER BY agency_id"
+                )
+            ).fetchall()
+        agency_ids = [r[0] for r in rows]
+    except Exception as exc:
+        print(f"[gtfs-loader] could not read agencies table ({exc}); using fallback list")
+
+    if not agency_ids:
+        print("[gtfs-loader] WARNING: agencies table empty — falling back to AC/BA/SF only")
+        agency_ids = ["AC", "BA", "SF"]
+
     results: dict[str, str] = {}
-    for agency_id in settings.five11_agencies:
+    for agency_id in agency_ids:
         print(f"[gtfs-loader] Loading {agency_id}...")
         try:
             load_agency_gtfs(agency_id)
