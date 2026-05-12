@@ -1,20 +1,26 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import { api } from "../lib/api";
+import { agencyColor, agencyName } from "../lib/agencies";
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || "http://localhost:8000";
-
-interface Alert { id: string; header: string; effect: string; cause: string; }
+interface Alert { id: string; header: string; effect: string; cause: string; agency_id: string | null; }
 
 export const AlertsBanner: React.FC = () => {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    const fetch = () => {
-      axios.get(`${API_BASE}/alerts`).then(r => setAlerts(r.data)).catch(() => {});
+    const fetchAlerts = () => {
+      api
+        .get(`/alerts`)
+        .then(r => setAlerts(Array.isArray(r.data) ? r.data : []))
+        .catch(err => {
+          if (err?.response?.status !== 401) {
+            console.warn("[AlertsBanner] Failed to fetch alerts:", err?.message ?? err);
+          }
+        });
     };
-    fetch();
-    const id = setInterval(fetch, 5 * 60 * 1000);
+    fetchAlerts();
+    const id = setInterval(fetchAlerts, 5 * 60 * 1000);
     return () => clearInterval(id);
   }, []);
 
@@ -26,6 +32,15 @@ export const AlertsBanner: React.FC = () => {
       {visible.slice(0, 3).map(a => (
         <div key={a.id} className="alert-item">
           <span className="alert-icon">⚠</span>
+          {a.agency_id && (
+            <span
+              className="alert-agency-badge"
+              style={{ background: agencyColor(a.agency_id) + "33", borderColor: agencyColor(a.agency_id), color: agencyColor(a.agency_id) }}
+              title={agencyName(a.agency_id)}
+            >
+              {a.agency_id}
+            </span>
+          )}
           <span className="alert-text">{a.header}</span>
           <span className="alert-effect">{a.effect}</span>
           <button className="alert-dismiss" onClick={() => setDismissed(prev => new Set([...prev, a.id]))}>✕</button>

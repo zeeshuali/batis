@@ -1,11 +1,7 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import { api } from "../lib/api";
 import { useSelection } from "../context/SelectionContext";
 import { agencyColor, agencyName } from "../lib/agencies";
-
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || "http://localhost:8000";
-const API_KEY  = (import.meta.env.VITE_API_KEY  as string) || "";
-function h() { return API_KEY ? { "X-API-Key": API_KEY } : {}; }
 
 interface StopDetail {
   stop_id: string;
@@ -60,8 +56,8 @@ export const StopDrawer: React.FC = () => {
     setLoading(true);
     const sid = encodeURIComponent(stopId);
     Promise.all([
-      axios.get(`${API_BASE}/stops/${sid}`, { headers: h() }),
-      axios.get(`${API_BASE}/stops/${sid}/live-departures`, { headers: h() }).catch(() => ({ data: [] })),
+      api.get(`/stops/${sid}`),
+      api.get(`/stops/${sid}/live-departures`).catch(() => ({ data: [] })),
     ])
       .then(([detailResp, liveResp]) => {
         setDetail(detailResp.data);
