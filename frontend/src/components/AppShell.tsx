@@ -7,6 +7,7 @@ import { Operations } from "../sections/Operations";
 import { Network } from "../sections/Network";
 import { EquitySafety } from "../sections/EquitySafety";
 import { BenchmarksDrift } from "../sections/BenchmarksDrift";
+import { Agency } from "../sections/Agency";
 import { useTheme } from "../context/ThemeContext";
 import { useUrlState, type SectionKey } from "../lib/useUrlState";
 import "../design/shell.css";
@@ -67,6 +68,7 @@ export const AppShell: React.FC = () => {
         {active === "network"    && <Network />}
         {active === "equity"     && <EquitySafety />}
         {active === "benchmarks" && <BenchmarksDrift />}
+        {active === "agency"     && <Agency />}
       </main>
 
       <aside className="shell-rail">

@@ -1,17 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type SectionKey = "overview" | "operations" | "network" | "equity" | "benchmarks";
-const SECTION_KEYS: readonly SectionKey[] = ["overview", "operations", "network", "equity", "benchmarks"];
+export type SectionKey = "overview" | "operations" | "network" | "equity" | "benchmarks" | "agency";
+const SECTION_KEYS: readonly SectionKey[] = ["overview", "operations", "network", "equity", "benchmarks", "agency"];
 
 export interface UrlState {
-  section:  SectionKey;
-  from:     string | null;     // YYYY-MM-DD
-  to:       string | null;
-  agencies: string[] | null;   // null means "all"
-  q:        string | null;     // search
+  section:   SectionKey;
+  from:      string | null;     // YYYY-MM-DD
+  to:        string | null;
+  agencies:  string[] | null;   // null means "all"
+  q:         string | null;     // search
+  agency_id: string | null;     // selected agency for the "agency" drill-down section
 }
 
-const DEFAULT_STATE: UrlState = { section: "overview", from: null, to: null, agencies: null, q: null };
+const DEFAULT_STATE: UrlState = {
+  section: "overview",
+  from: null, to: null,
+  agencies: null, q: null,
+  agency_id: null,
+};
 
 export function parseHash(hash: string): UrlState {
   const raw = hash.replace(/^#/, "");
@@ -22,10 +28,11 @@ export function parseHash(hash: string): UrlState {
   const ag = params.get("agencies");
   return {
     section,
-    from:     params.get("from") || null,
-    to:       params.get("to")   || null,
-    agencies: ag ? ag.split(",").filter(Boolean) : null,
-    q:        params.get("q")    || null,
+    from:      params.get("from") || null,
+    to:        params.get("to")   || null,
+    agencies:  ag ? ag.split(",").filter(Boolean) : null,
+    q:         params.get("q")    || null,
+    agency_id: params.get("id")   || null,
   };
 }
 
@@ -35,6 +42,7 @@ export function encodeHash(state: UrlState): string {
   if (state.to)                params.set("to", state.to);
   if (state.agencies && state.agencies.length > 0) params.set("agencies", state.agencies.join(","));
   if (state.q)                 params.set("q", state.q);
+  if (state.agency_id)         params.set("id", state.agency_id);
   const query = params.toString();
   // URLSearchParams percent-encodes commas; restore them for readability.
   const pretty = query.replace(/%2C/g, ",");

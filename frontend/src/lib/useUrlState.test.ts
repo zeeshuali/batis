@@ -4,8 +4,12 @@ import { useUrlState, parseHash, encodeHash } from "./useUrlState";
 
 describe("parseHash / encodeHash", () => {
   it("round-trips an empty state to a section-only hash", () => {
-    expect(parseHash("#network")).toEqual({ section: "network", from: null, to: null, agencies: null, q: null });
-    expect(encodeHash({ section: "network", from: null, to: null, agencies: null, q: null })).toBe("#network");
+    expect(parseHash("#network")).toEqual({
+      section: "network", from: null, to: null, agencies: null, q: null, agency_id: null,
+    });
+    expect(encodeHash({
+      section: "network", from: null, to: null, agencies: null, q: null, agency_id: null,
+    })).toBe("#network");
   });
 
   it("encodes and decodes a full state", () => {
@@ -15,6 +19,7 @@ describe("parseHash / encodeHash", () => {
       to: "2026-04-30",
       agencies: ["AC", "BA"],
       q: "51",
+      agency_id: null,
     };
     const hash = encodeHash(state);
     expect(hash).toContain("#equity?");
@@ -22,6 +27,21 @@ describe("parseHash / encodeHash", () => {
     expect(hash).toContain("to=2026-04-30");
     expect(hash).toContain("agencies=AC,BA");
     expect(hash).toContain("q=51");
+    expect(parseHash(hash)).toEqual(state);
+  });
+
+  it("round-trips an #agency drill-down state", () => {
+    const state = {
+      section: "agency" as const,
+      from: "2026-05-01",
+      to: "2026-05-08",
+      agencies: null,
+      q: null,
+      agency_id: "BA",
+    };
+    const hash = encodeHash(state);
+    expect(hash).toContain("#agency?");
+    expect(hash).toContain("id=BA");
     expect(parseHash(hash)).toEqual(state);
   });
 
