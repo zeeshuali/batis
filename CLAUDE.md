@@ -39,7 +39,7 @@ Vite proxy: `/api` → `http://127.0.0.1:8002` (NOTE: backend runs on 8000, not 
 batis/
 ├── backend/
 │   ├── .env                    ← DB URL, API keys (NEVER commit)
-│   ├── requirements.txt        ← MISSING: sentence-transformers, httpx, certifi
+│   ├── requirements.txt        ← All deps including sentence-transformers, httpx, certifi, pytest
 │   ├── app/
 │   │   ├── main.py             ← All FastAPI routes (29 endpoints)
 │   │   ├── db.py               ← Engine singleton
@@ -53,7 +53,7 @@ batis/
 │   │   ├── baseline.py         ← SQL delay predictor (runs every 30 min)
 │   │   └── embed.py            ← RAG embedding pipeline (runs every 30 min)
 │   └── sql/
-│       └── schema.sql          ← Full DB DDL (NOTE: missing CREATE EXTENSION vector)
+│       └── schema.sql          ← Full DB DDL incl. pgvector + immutable generated columns on stop_observations
 └── frontend/
     ├── .env                    ← VITE_MAPBOX_TOKEN, VITE_API_BASE_URL
     ├── src/

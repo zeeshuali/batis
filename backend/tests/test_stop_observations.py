@@ -134,27 +134,26 @@ def test_load_missing_months_skips_already_loaded(db_conn: Connection):
         loaded_before = set(get_loaded_months(db_conn))
     assert len(loaded_before) >= 1
 
-    # A second call with the same months_back=1 should skip all already-loaded months
-    call_count = 0
+    # Track which months load_missing_months actually downloads.
+    downloaded: list[str] = []
 
-    def _count_calls(_ym: str) -> io.BytesIO:
-        nonlocal call_count
-        call_count += 1
+    def _track(ym: str) -> io.BytesIO:
+        downloaded.append(ym)
         return _make_synthetic_zip(_SYNTHETIC_ROWS)
 
     with patch(
         "app.services.five11_stop_observations.download_month",
-        side_effect=_count_calls,
+        side_effect=_track,
     ):
         with db_conn.begin():
             load_missing_months(db_conn, months_back=1)
 
-    # download_month should have been called 0 times if today's month is the only
-    # "recent" missing slot; it may be 0 or 1 depending on month arithmetic,
-    # but must NOT be called for the month we just inserted.
+    # Idempotency contract: the month we seeded must never be re-downloaded,
+    # regardless of how many other months months_back covers.
     this_month = today.strftime("%Y-%m")
-    assert this_month in loaded_before or call_count == 0 or True, (
-        "Idempotency check: already-loaded month must not be re-downloaded."
+    assert this_month not in downloaded, (
+        f"Already-loaded month {this_month} was re-downloaded. "
+        f"download_month was called for: {downloaded}"
     )
 
 

@@ -362,9 +362,13 @@ CREATE TABLE IF NOT EXISTS stop_observations (
             ELSE NULL
         END
     ) STORED,
-    -- timestamptz + interval is STABLE (interval months/days depend on tz), so
-    -- compare interval-against-interval: subtraction of two timestamptzs is
-    -- IMMUTABLE, and the resulting interval compares immutably to a constant.
+    -- Generated columns require IMMUTABLE expressions. The naive form
+    -- `observed_arrival <= scheduled_arrival + INTERVAL '5 minutes'` uses
+    -- `timestamptz + interval`, which PG 15 marks STABLE because adding
+    -- months/days to a timestamptz crosses DST boundaries differently
+    -- depending on the session timezone. The fix is to subtract first —
+    -- `timestamptz - timestamptz` returns an interval and is IMMUTABLE —
+    -- then compare that interval to a constant.
     on_time           boolean GENERATED ALWAYS AS (
         (observed_arrival - scheduled_arrival) <= INTERVAL '5 minutes'
     ) STORED,
