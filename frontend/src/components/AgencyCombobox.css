@@ -106,6 +106,24 @@
   font-size: var(--text-sm);
 }
 
+.agency-combobox__group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px var(--space-3) 3px;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--color-fg-3);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-2);
+}
+.agency-combobox__list > .agency-combobox__group-header:first-child { border-top: 0; }
+.agency-combobox__group-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg-3);
+}
+
 .agency-combobox__row { padding: 0; }
 .agency-combobox__row-label {
   display: flex;

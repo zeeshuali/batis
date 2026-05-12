@@ -42,6 +42,24 @@ describe("AgencyCombobox", () => {
     await waitFor(() => expect(screen.getByText("All agencies")).toBeInTheDocument());
   });
 
+  it("groups monitored agencies above 'Other' with section headers", async () => {
+    render(wrap(<AgencyCombobox />));
+    await userEvent.click(screen.getByRole("button", { name: /Agencies/i }));
+    // Default view: AC/BA/CT are monitored, no 'other' has_data row.
+    expect(await screen.findByText(/Monitored \(RT\)/i)).toBeInTheDocument();
+    // Reveal inactive — now '511 Emergency' + 'Empty Operator' show up as 'Other'.
+    await userEvent.click(screen.getByLabelText(/Show 511 internal/i));
+    expect(await screen.findByText(/^Other$/)).toBeInTheDocument();
+    // Confirm DOM order: the Monitored header precedes the Other header.
+    const headers = screen.getAllByText(/Monitored \(RT\)|^Other$/);
+    expect(headers[0].textContent).toMatch(/Monitored/);
+    expect(headers[1].textContent).toMatch(/Other/);
+    // And AC Transit's row precedes 511 Emergency's row.
+    const acRow = screen.getByText("AC Transit");
+    const emRow = screen.getByText("511 Emergency");
+    expect(acRow.compareDocumentPosition(emRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("hides has_data=false agencies by default and reveals them via the toggle", async () => {
     render(wrap(<AgencyCombobox />));
     await userEvent.click(screen.getByRole("button", { name: /Agencies/i }));

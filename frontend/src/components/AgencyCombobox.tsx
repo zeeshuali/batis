@@ -1,10 +1,30 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAgencies } from "../context/AgenciesContext";
 import { useFilters } from "../context/FilterContext";
-import { agencyColor } from "../lib/agencies";
+import { agencyColor, type AgencyMeta } from "../lib/agencies";
 import "./AgencyCombobox.css";
 
 const MAX_CHIPS = 3;
+
+function renderRow(
+  a: AgencyMeta,
+  active: boolean,
+  toggle: (id: string) => void,
+): React.ReactNode {
+  return (
+    <li key={a.agency_id} className="agency-combobox__row">
+      <label className="agency-combobox__row-label">
+        <input type="checkbox" checked={active} onChange={() => toggle(a.agency_id)} />
+        <span className="agency-combobox__row-code" style={{ color: agencyColor(a.agency_id) }}>
+          {a.agency_id}
+        </span>
+        <span className="agency-combobox__row-name">{a.agency_name}</span>
+        {a.monitored && <span className="agency-combobox__rt">RT</span>}
+        {a.has_data === false && <span className="agency-combobox__inactive">inactive</span>}
+      </label>
+    </li>
+  );
+}
 
 export const AgencyCombobox: React.FC = () => {
   const { agencies, loading } = useAgencies();
@@ -35,15 +55,22 @@ export const AgencyCombobox: React.FC = () => {
   const selected = filters.agencies;          // [] = "all"
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
-  const visible = useMemo(() => {
+  const { monitoredRows, otherRows } = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return agencies
+    const filtered = agencies
       .filter(a => showInactive || a.has_data !== false)
       .filter(a => !term
         || a.agency_id.toLowerCase().includes(term)
-        || a.agency_name.toLowerCase().includes(term))
+        || a.agency_name.toLowerCase().includes(term));
+    const monitored = filtered
+      .filter(a => a.monitored)
       .sort((x, y) => x.agency_name.localeCompare(y.agency_name));
+    const others = filtered
+      .filter(a => !a.monitored)
+      .sort((x, y) => x.agency_name.localeCompare(y.agency_name));
+    return { monitoredRows: monitored, otherRows: others };
   }, [agencies, search, showInactive]);
+  const totalVisible = monitoredRows.length + otherRows.length;
 
   const toggle = useCallback((id: string) => {
     setAgencies(selectedSet.has(id) ? selected.filter(s => s !== id) : [...selected, id]);
@@ -103,33 +130,26 @@ export const AgencyCombobox: React.FC = () => {
           />
 
           <ul className="agency-combobox__list">
-            {loading && visible.length === 0 && (
+            {loading && totalVisible === 0 && (
               <li className="agency-combobox__empty">Loading…</li>
             )}
-            {!loading && visible.length === 0 && (
+            {!loading && totalVisible === 0 && (
               <li className="agency-combobox__empty">No matches.</li>
             )}
-            {visible.map(a => {
-              const active = selectedSet.has(a.agency_id);
-              return (
-                <li key={a.agency_id} className="agency-combobox__row">
-                  <label className="agency-combobox__row-label">
-                    <input
-                      type="checkbox"
-                      checked={active}
-                      onChange={() => toggle(a.agency_id)}
-                    />
-                    <span
-                      className="agency-combobox__row-code"
-                      style={{ color: agencyColor(a.agency_id) }}
-                    >{a.agency_id}</span>
-                    <span className="agency-combobox__row-name">{a.agency_name}</span>
-                    {a.monitored && <span className="agency-combobox__rt">RT</span>}
-                    {a.has_data === false && <span className="agency-combobox__inactive">inactive</span>}
-                  </label>
-                </li>
-              );
-            })}
+            {monitoredRows.length > 0 && (
+              <li className="agency-combobox__group-header" aria-hidden="true">
+                <span>Monitored (RT)</span>
+                <span className="agency-combobox__group-count">{monitoredRows.length}</span>
+              </li>
+            )}
+            {monitoredRows.map(a => renderRow(a, selectedSet.has(a.agency_id), toggle))}
+            {otherRows.length > 0 && (
+              <li className="agency-combobox__group-header" aria-hidden="true">
+                <span>Other</span>
+                <span className="agency-combobox__group-count">{otherRows.length}</span>
+              </li>
+            )}
+            {otherRows.map(a => renderRow(a, selectedSet.has(a.agency_id), toggle))}
           </ul>
 
           <div className="agency-combobox__footer">
