@@ -10,3 +10,5 @@ export { Spinner } from "./Spinner";
 export { EmptyState } from "./EmptyState";
 export { SectionError } from "./SectionError";
 export type { SectionErrorProps } from "./SectionError";
+export { ExportButton } from "./ExportButton";
+export type { ExportButtonProps } from "./ExportButton";

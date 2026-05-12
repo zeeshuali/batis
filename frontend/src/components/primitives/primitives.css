@@ -132,3 +132,20 @@
   font-size: var(--text-sm);
 }
 .section-error__retry:hover { background: var(--color-bg-2); }
+
+.export-button {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-1);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.export-button:hover:not(:disabled) { color: var(--color-fg-0); background: var(--color-bg-2); }
+.export-button:disabled            { opacity: 0.4; cursor: default; }
