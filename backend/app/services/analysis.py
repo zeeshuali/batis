@@ -13,6 +13,7 @@ def get_reliability_summary(
     start_date: date,
     end_date: date,
     route_ids: Optional[List[str]] = None,
+    agency_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Basic reliability KPIs per route over a date range.
@@ -22,6 +23,10 @@ def get_reliability_summary(
     if route_ids:
         route_filter = "AND route_id = ANY(:route_ids)"
         params["route_ids"] = route_ids
+    agency_filter = ""
+    if agency_id:
+        agency_filter = "AND agency_id = :agency_id"
+        params["agency_id"] = agency_id
 
     sql = text(
         f"""
@@ -36,6 +41,7 @@ def get_reliability_summary(
         FROM ops_trip_events
         WHERE service_date BETWEEN :start_date AND :end_date
         {route_filter}
+        {agency_filter}
         GROUP BY route_id
         ORDER BY route_id
         """
@@ -184,6 +190,7 @@ def get_stop_safety_scores(
     conn: Connection,
     min_score: Optional[float] = None,
     max_score: Optional[float] = None,
+    agency_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Stop-level safety scores and contributing metrics.
@@ -191,11 +198,14 @@ def get_stop_safety_scores(
     clauses = []
     params: Dict[str, Any] = {}
     if min_score is not None:
-        clauses.append("safety_score >= :min_score")
+        clauses.append("ss.safety_score >= :min_score")
         params["min_score"] = min_score
     if max_score is not None:
-        clauses.append("safety_score <= :max_score")
+        clauses.append("ss.safety_score <= :max_score")
         params["max_score"] = max_score
+    if agency_id:
+        clauses.append("s.agency_id = :agency_id")
+        params["agency_id"] = agency_id
 
     where = ""
     if clauses:
@@ -204,14 +214,15 @@ def get_stop_safety_scores(
     sql = text(
         f"""
         SELECT
-          stop_id,
-          safety_score,
-          crime_incidents_nearby,
-          collisions_nearby,
-          lighting_score,
-          pedestrian_infra_score,
-          last_computed_at
-        FROM stop_safety_scores
+          ss.stop_id,
+          ss.safety_score,
+          ss.crime_incidents_nearby,
+          ss.collisions_nearby,
+          ss.lighting_score,
+          ss.pedestrian_infra_score,
+          ss.last_computed_at
+        FROM stop_safety_scores ss
+        JOIN gtfs_stops s USING (stop_id)
         {where}
         """
     )
@@ -329,6 +340,7 @@ def get_reliability_stops_geo(
     start_date: date,
     end_date: date,
     route_ids: Optional[List[str]] = None,
+    agency_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     GeoJSON point features: one per stop, aggregating avg delay and sample count
@@ -339,6 +351,10 @@ def get_reliability_stops_geo(
     if route_ids:
         route_filter = "AND e.route_id = ANY(:route_ids)"
         params["route_ids"] = route_ids
+    agency_filter = ""
+    if agency_id:
+        agency_filter = "AND s.agency_id = :agency_id"
+        params["agency_id"] = agency_id
 
     sql = text(
         f"""
@@ -353,6 +369,7 @@ def get_reliability_stops_geo(
         WHERE e.service_date BETWEEN :start_date AND :end_date
           AND s.geom IS NOT NULL
           {route_filter}
+          {agency_filter}
         GROUP BY s.stop_id, s.stop_name, s.geom
         ORDER BY avg_delay_seconds DESC
         """
@@ -370,6 +387,7 @@ def get_safety_stops_geo(
     conn: Connection,
     min_score: Optional[float] = None,
     max_score: Optional[float] = None,
+    agency_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     GeoJSON point features: stops with safety scores and nearby incident counts,
@@ -383,6 +401,9 @@ def get_safety_stops_geo(
     if max_score is not None:
         clauses.append("ss.safety_score <= :max_score")
         params["max_score"] = max_score
+    if agency_id:
+        clauses.append("s.agency_id = :agency_id")
+        params["agency_id"] = agency_id
 
     where = "WHERE " + " AND ".join(clauses)
     sql = text(
@@ -658,10 +679,15 @@ def get_route_geo(conn: Connection, route_id: str) -> Dict[str, Any]:
     return {"type": "FeatureCollection", "features": features}
 
 
-def get_live_vehicles(conn: Connection) -> Dict[str, Any]:
+def get_live_vehicles(conn: Connection, agency_id: Optional[str] = None) -> Dict[str, Any]:
     """GeoJSON of the most recent position per vehicle, within the last 15 minutes."""
+    agency_filter = ""
+    params: Dict[str, Any] = {}
+    if agency_id:
+        agency_filter = "AND agency_id = :agency_id"
+        params["agency_id"] = agency_id
     rows = conn.execute(
-        text("""
+        text(f"""
         SELECT DISTINCT ON (vehicle_id)
             vehicle_id, trip_id, route_id, agency_id,
             latitude, longitude, bearing, speed, occupancy_status,
@@ -670,8 +696,10 @@ def get_live_vehicles(conn: Connection) -> Dict[str, Any]:
         FROM rt_vehicle_positions_raw
         WHERE timestamp >= NOW() - INTERVAL '15 minutes'
           AND geom IS NOT NULL
+          {agency_filter}
         ORDER BY vehicle_id, timestamp DESC
-        """)
+        """),
+        params,
     ).mappings().all()
     features = []
     for r in rows:
@@ -686,6 +714,7 @@ def get_reliability_trend(
     conn: Connection,
     route_id: Optional[str],
     days: int = 30,
+    agency_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Daily on-time % and avg delay (aggregated across all routes) over the last N days."""
     params: Dict[str, Any] = {"days": days}
@@ -693,6 +722,10 @@ def get_reliability_trend(
     if route_id:
         route_clause = "AND route_id = :route_id"
         params["route_id"] = route_id
+    agency_clause = ""
+    if agency_id:
+        agency_clause = "AND agency_id = :agency_id"
+        params["agency_id"] = agency_id
     rows = conn.execute(
         text(f"""
         SELECT
@@ -707,6 +740,7 @@ def get_reliability_trend(
         WHERE service_date >= CURRENT_DATE - (:days || ' days')::interval
           AND delay_seconds IS NOT NULL
           {route_clause}
+          {agency_clause}
         GROUP BY service_date
         ORDER BY service_date
         """),
@@ -989,13 +1023,19 @@ def get_bunching_summary(
     conn: Connection,
     start_date: date,
     end_date: date,
+    agency_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Ranks routes by delay variance (stddev) as a proxy for bunching / service irregularity.
     Also returns avg delay, max delay, and % of late arrivals (> 5 min).
     """
+    params: Dict[str, Any] = {"start_date": start_date, "end_date": end_date}
+    agency_filter = ""
+    if agency_id:
+        agency_filter = "AND agency_id = :agency_id"
+        params["agency_id"] = agency_id
     rows = conn.execute(
-        text("""
+        text(f"""
         SELECT
             route_id,
             COUNT(*)                                                         AS event_count,
@@ -1010,12 +1050,13 @@ def get_bunching_summary(
         FROM ops_trip_events
         WHERE service_date BETWEEN :start_date AND :end_date
           AND delay_seconds IS NOT NULL
+          {agency_filter}
         GROUP BY route_id
         HAVING COUNT(*) > 5
         ORDER BY delay_stddev DESC NULLS LAST
         LIMIT 50
         """),
-        {"start_date": start_date, "end_date": end_date},
+        params,
     ).mappings().all()
     return [dict(r) for r in rows]
 

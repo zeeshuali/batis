@@ -10,6 +10,8 @@ from sqlalchemy.engine import Connection
 from app.core.config import get_settings
 from app.db import get_engine
 from app.services.analysis import (
+    get_agencies_list,
+    get_agencies_rollup,
     get_agency_otp_benchmarks,
     get_schedule_drift,
     get_traffic_transit_impact,
@@ -128,14 +130,40 @@ def root():
     return {"message": "Bay Area Transit Intelligence API"}
 
 
+# ── Agencies catalog ──────────────────────────────────────────────────────────
+# NOTE: register /agencies/rollup BEFORE /agencies/{agency_id} if any
+# parameterised /agencies/{...} route is ever added — same lesson as the
+# /routes/compare vs /routes/{route_id}/geo ordering documented around line 322.
+
+@app.get("/agencies/rollup", dependencies=[Depends(api_key_dependency)])
+def agencies_rollup(
+    start_date: date,
+    end_date: date,
+    conn: Connection = Depends(get_conn),
+):
+    return get_agencies_rollup(conn, start_date=start_date, end_date=end_date)
+
+
+@app.get("/agencies", dependencies=[Depends(api_key_dependency)])
+def agencies_list(conn: Connection = Depends(get_conn)):
+    return get_agencies_list(conn)
+
+
 @app.get("/reliability/summary", dependencies=[Depends(api_key_dependency)])
 def reliability_summary(
     start_date: date,
     end_date: date,
     route_ids: Optional[List[str]] = Query(default=None),
+    agency_id: Optional[str] = Query(default=None),
     conn: Connection = Depends(get_conn),
 ):
-    return get_reliability_summary(conn, start_date=start_date, end_date=end_date, route_ids=route_ids)
+    return get_reliability_summary(
+        conn,
+        start_date=start_date,
+        end_date=end_date,
+        route_ids=route_ids,
+        agency_id=agency_id,
+    )
 
 
 @app.get("/reliability/route/{route_id}", dependencies=[Depends(api_key_dependency)])
@@ -226,9 +254,15 @@ def equity_score(conn: Connection = Depends(get_conn)):
 def safety_stops(
     min_score: Optional[float] = Query(default=None),
     max_score: Optional[float] = Query(default=None),
+    agency_id: Optional[str] = Query(default=None),
     conn: Connection = Depends(get_conn),
 ):
-    return get_stop_safety_scores(conn, min_score=min_score, max_score=max_score)
+    return get_stop_safety_scores(
+        conn,
+        min_score=min_score,
+        max_score=max_score,
+        agency_id=agency_id,
+    )
 
 
 @app.get("/demand/forecasts", dependencies=[Depends(api_key_dependency)])
@@ -256,11 +290,18 @@ def reliability_stops_geo(
     start_date: date,
     end_date: date,
     route_ids: Optional[List[str]] = Query(default=None),
+    agency_id: Optional[str] = Query(default=None),
     conn: Connection = Depends(get_conn),
 ):
     return {
         "type": "FeatureCollection",
-        "features": get_reliability_stops_geo(conn, start_date=start_date, end_date=end_date, route_ids=route_ids),
+        "features": get_reliability_stops_geo(
+            conn,
+            start_date=start_date,
+            end_date=end_date,
+            route_ids=route_ids,
+            agency_id=agency_id,
+        ),
     }
 
 
@@ -268,11 +309,17 @@ def reliability_stops_geo(
 def safety_stops_geo(
     min_score: Optional[float] = Query(default=None),
     max_score: Optional[float] = Query(default=None),
+    agency_id: Optional[str] = Query(default=None),
     conn: Connection = Depends(get_conn),
 ):
     return {
         "type": "FeatureCollection",
-        "features": get_safety_stops_geo(conn, min_score=min_score, max_score=max_score),
+        "features": get_safety_stops_geo(
+            conn,
+            min_score=min_score,
+            max_score=max_score,
+            agency_id=agency_id,
+        ),
     }
 
 
@@ -341,15 +388,24 @@ def route_geo(route_id: str, conn: Connection = Depends(get_conn)):
 def bunching_summary(
     start_date: date,
     end_date: date,
+    agency_id: Optional[str] = Query(default=None),
     conn: Connection = Depends(get_conn),
 ):
-    return get_bunching_summary(conn, start_date=start_date, end_date=end_date)
+    return get_bunching_summary(
+        conn,
+        start_date=start_date,
+        end_date=end_date,
+        agency_id=agency_id,
+    )
 
 
 @app.get("/vehicles/live")
-def vehicles_live(conn: Connection = Depends(get_conn)):
+def vehicles_live(
+    agency_id: Optional[str] = Query(default=None),
+    conn: Connection = Depends(get_conn),
+):
     """Live vehicle positions — no API key required for real-time map."""
-    return get_live_vehicles(conn)
+    return get_live_vehicles(conn, agency_id=agency_id)
 
 
 @app.get("/reliability/trend", dependencies=[Depends(api_key_dependency)])
@@ -358,13 +414,14 @@ def reliability_trend(
     end_date: Optional[date] = Query(default=None),
     days: int = Query(default=30, ge=1, le=90),
     route_id: Optional[str] = Query(default=None),
+    agency_id: Optional[str] = Query(default=None),
     conn: Connection = Depends(get_conn),
 ):
     # Compute days from start_date/end_date if provided
     if start_date and end_date:
         from datetime import date as date_type
         days = max(1, (end_date - start_date).days + 1)
-    return get_reliability_trend(conn, route_id=route_id, days=days)
+    return get_reliability_trend(conn, route_id=route_id, days=days, agency_id=agency_id)
 
 
 @app.get("/routes/{route_id}/headways", dependencies=[Depends(api_key_dependency)])
