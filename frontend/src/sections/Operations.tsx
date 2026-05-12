@@ -12,8 +12,10 @@ interface ReliabilityRow {
   avg_delay_seconds: number;
   on_time_pct?: number;
 }
-interface VehicleRow  { vehicle_id: string; }
-interface BunchingRow { route_id: string; bunched_events: number; }
+/** /vehicles/live returns a GeoJSON FeatureCollection, not a flat array. */
+interface VehicleFC { type: "FeatureCollection"; features: unknown[]; }
+/** /bunching/summary returns rows with late_events / event_count / avg_delay_seconds. */
+interface BunchingRow { route_id: string; event_count: number; late_events?: number; avg_delay_seconds?: number; }
 
 function fmtMin(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)}s`;
@@ -25,7 +27,7 @@ export const Operations: React.FC = () => {
   const { selection, setRouteId } = useSelection();
 
   const [reliability, setReliability] = useState<ReliabilityRow[]>([]);
-  const [vehicles, setVehicles] = useState<VehicleRow[]>([]);
+  const [vehicleCount, setVehicleCount] = useState<number>(0);
   const [bunching, setBunching] = useState<BunchingRow[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -35,13 +37,13 @@ export const Operations: React.FC = () => {
       setLoading(true);
       try {
         const [rel, veh, bun] = await Promise.all([
-          api.get<ReliabilityRow[]>("/reliability/summary", { params: { start_date: filters.startDate, end_date: filters.endDate } }),
-          api.get<VehicleRow[]>("/vehicles/live").catch(() => ({ data: [] })),
-          api.get<BunchingRow[]>("/bunching/summary", { params: { start_date: filters.startDate, end_date: filters.endDate } }).catch(() => ({ data: [] })),
+          api.get<ReliabilityRow[]>("/reliability/summary", { params: { start_date: filters.startDate, end_date: filters.endDate } }).catch(() => ({ data: [] as ReliabilityRow[] })),
+          api.get<VehicleFC>("/vehicles/live").catch(() => ({ data: { type: "FeatureCollection" as const, features: [] } })),
+          api.get<BunchingRow[]>("/bunching/summary", { params: { start_date: filters.startDate, end_date: filters.endDate } }).catch(() => ({ data: [] as BunchingRow[] })),
         ]);
         if (cancelled) return;
         setReliability(rel.data ?? []);
-        setVehicles(veh.data ?? []);
+        setVehicleCount(veh.data?.features?.length ?? 0);
         setBunching(bun.data ?? []);
       } finally {
         if (!cancelled) setLoading(false);
@@ -58,7 +60,7 @@ export const Operations: React.FC = () => {
   const avgDelay = totalEvents > 0
     ? reliability.reduce((s, r) => s + (r.avg_delay_seconds * r.sample_events), 0) / totalEvents
     : null;
-  const bunchedTotal = bunching.reduce((s, b) => s + b.bunched_events, 0);
+  const bunchedTotal = bunching.reduce((s, b) => s + (b.late_events ?? 0), 0);
 
   const worst: DataListItem[] = [...reliability]
     .filter(r => r.sample_events >= 10)
@@ -82,7 +84,7 @@ export const Operations: React.FC = () => {
       <div className="section__kpi-strip">
         <KpiCard label="Network OTP"   value={networkOtp === null ? "—" : `${networkOtp.toFixed(1)}%`} />
         <KpiCard label="Avg delay"     value={avgDelay   === null ? "—" : fmtMin(avgDelay)} />
-        <KpiCard label="Live vehicles" value={String(vehicles.length)} />
+        <KpiCard label="Live vehicles" value={String(vehicleCount)} />
         <KpiCard label="Bunched"       value={String(bunchedTotal)} sub="events in window" />
       </div>
 

@@ -12,7 +12,7 @@ interface ReliabilityRow {
   avg_delay_seconds: number;
   on_time_pct?: number;
 }
-interface TrendRow { service_date: string; avg_delay: number; }
+interface TrendRow { date?: string; service_date?: string; avg_delay: number | null; }
 interface SafetyRow { stop_id: string; safety_score: number; }
 
 function fmtMin(seconds: number): string {
@@ -73,7 +73,12 @@ export const Overview: React.FC = () => {
       trailing: fmtMin(r.avg_delay_seconds),
     }));
 
-  const trendPoints: TrendPoint[] = trendRows.map(t => ({ x: t.service_date.slice(5), y: t.avg_delay }));
+  const trendPoints: TrendPoint[] = trendRows
+    .map(t => {
+      const d = t.date ?? t.service_date ?? "";
+      return { x: d.slice(5), y: t.avg_delay ?? null };
+    })
+    .filter(p => p.x !== "");
 
   return (
     <div className="section">
