@@ -7,8 +7,11 @@ export interface KpiCardProps {
   sub?: string;
   /** Numeric change vs previous period. Renders sign + 1 decimal place. */
   delta?: number;
-  /** When true a positive delta is rendered "good" (green); when false it's bad.
-   *  Useful because some metrics improve as they fall (delay) and some as they rise (OTP). */
+  /** Caller's verdict on whether the delta represents an improvement.
+   *  `deltaIsGood: true` renders the delta in the success color; `false`
+   *  in the critical color. The component does not infer polarity from the
+   *  sign of `delta` — callers know their metric's direction (delay falling
+   *  is good; OTP rising is good) and pass the right flag. */
   deltaIsGood?: boolean;
 }
 

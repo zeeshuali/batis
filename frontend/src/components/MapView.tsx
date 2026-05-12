@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import axios from "axios";
-import type { LatLng, Section } from "../App";
+import type { LatLng, Section } from "../types";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 

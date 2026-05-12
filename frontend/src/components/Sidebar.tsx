@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import type { LatLng, Section } from "../App";
+import type { LatLng, Section } from "../types";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
