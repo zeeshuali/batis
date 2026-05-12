@@ -6,6 +6,7 @@ import { KpiCard, DataList, Spinner, EmptyState, SectionError, ExportButton, typ
 import { SectionMap } from "../components/SectionMap";
 import { PlannerPanel } from "../components/PlannerPanel";
 import { agencyName } from "../lib/agencies";
+import { useAgencies } from "../context/AgenciesContext";
 import { RouteRow } from "../types/data";
 import "./sections.css";
 
@@ -14,6 +15,7 @@ interface DesertFeature { properties: { cell_id: string; desert_score: number; n
 export const Network: React.FC = () => {
   const { filters } = useFilters();
   const { selection, setRouteId } = useSelection();
+  const { agencies, byId: agenciesById } = useAgencies();
 
   const [routes, setRoutes] = useState<RouteRow[]>([]);
   const [cellCount, setCellCount]   = useState<number | null>(null);
@@ -57,7 +59,7 @@ export const Network: React.FC = () => {
     .map(r => ({
       id: r.route_id,
       primary:   r.route_short_name ?? r.route_id,
-      secondary: r.agency_id ? agencyName(r.agency_id) : undefined,
+      secondary: r.agency_id ? agencyName(r.agency_id, agenciesById) : undefined,
     }));
 
   const desertItems: DataListItem[] = desertList
@@ -95,7 +97,7 @@ export const Network: React.FC = () => {
       )}
 
       <div className="section__kpi-strip">
-        <KpiCard label="Total routes"    value={String(routes.length)} sub={`${filters.agencies.length} agencies`} />
+        <KpiCard label="Total routes"    value={String(routes.length)} sub={`${filters.agencies.length || agencies.length} agencies`} />
         <KpiCard label="Coverage cells"  value={cellCount   === null ? "—" : String(cellCount)} />
         <KpiCard label="Transit deserts" value={desertCount === null ? "—" : String(desertCount)} deltaIsGood={false} />
         <KpiCard label="In view"         value={String(filtered.length)} sub="after filters" />

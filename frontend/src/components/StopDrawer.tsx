@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useSelection } from "../context/SelectionContext";
 import { agencyColor, agencyName } from "../lib/agencies";
+import { useAgencies } from "../context/AgenciesContext";
 
 interface StopDetail {
   stop_id: string;
@@ -50,6 +51,7 @@ export const StopDrawer: React.FC = () => {
   const [detail, setDetail] = useState<StopDetail | null>(null);
   const [liveDepartures, setLiveDepartures] = useState<LiveDeparture[]>([]);
   const [loading, setLoading] = useState(false);
+  const { byId: agenciesById } = useAgencies();
 
   useEffect(() => {
     if (!stopId) { setDetail(null); setLiveDepartures([]); return; }
@@ -82,7 +84,7 @@ export const StopDrawer: React.FC = () => {
             <span
               className="agency-badge"
               style={{ background: agencyColor(detail.agency_id) + "33", borderColor: agencyColor(detail.agency_id), color: agencyColor(detail.agency_id) }}
-              title={agencyName(detail.agency_id)}
+              title={agencyName(detail.agency_id, agenciesById)}
             >
               {detail.agency_id}
             </span>

@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { FilterProvider } from "../context/FilterContext";
 import { SelectionProvider } from "../context/SelectionContext";
 import { ThemeProvider } from "../context/ThemeContext";
+import { AgenciesProvider } from "../context/AgenciesContext";
 import { AppShell } from "./AppShell";
 
 // jsdom has no WebGL — section maps would crash when a section that embeds
@@ -44,9 +45,11 @@ vi.mock("../lib/api", async () => {
 function wrap(ui: React.ReactElement) {
   return (
     <ThemeProvider>
-      <FilterProvider>
-        <SelectionProvider>{ui}</SelectionProvider>
-      </FilterProvider>
+      <AgenciesProvider>
+        <FilterProvider>
+          <SelectionProvider>{ui}</SelectionProvider>
+        </FilterProvider>
+      </AgenciesProvider>
     </ThemeProvider>
   );
 }

@@ -1,5 +1,4 @@
 import React, { createContext, useCallback, useContext, useMemo } from "react";
-import { ALL_AGENCY_IDS } from "../lib/agencies";
 import { useUrlState } from "../lib/useUrlState";
 
 export interface Filters {
@@ -29,7 +28,10 @@ export const FilterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const startDate = state.from ?? isoDate(-7);
   const endDate   = state.to   ?? isoDate(0);
-  const agencies  = state.agencies ?? [...ALL_AGENCY_IDS];
+  // `[]` is the canonical "all agencies" value — FilterBar passes through
+  // whatever the user has actively toggled; "all selected" is elided to null
+  // in the URL by setAgencies below.
+  const agencies  = state.agencies ?? [];
   const search    = state.q ?? "";
 
   const setDateRange = useCallback((s: string, e: string) => {
@@ -37,9 +39,9 @@ export const FilterProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [state, setState]);
 
   const setAgencies = useCallback((ids: string[]) => {
-    // Treat "all selected" or "none selected" as the default — elide from URL.
-    const isAll = ids.length === 0 || ids.length === ALL_AGENCY_IDS.length;
-    setState({ ...state, agencies: isAll ? null : ids });
+    // "[] means all" — elide the empty value from the URL so the share link
+    // doesn't carry a vestigial `agencies=` parameter.
+    setState({ ...state, agencies: ids.length === 0 ? null : ids });
   }, [state, setState]);
 
   const setSearch = useCallback((q: string) => {

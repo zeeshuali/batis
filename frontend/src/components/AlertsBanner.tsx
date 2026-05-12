@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { agencyColor, agencyName } from "../lib/agencies";
+import { useAgencies } from "../context/AgenciesContext";
 
 interface Alert { id: string; header: string; effect: string; cause: string; agency_id: string | null; }
 
 export const AlertsBanner: React.FC = () => {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const { byId: agenciesById } = useAgencies();
 
   useEffect(() => {
     const fetchAlerts = () => {
@@ -36,7 +38,7 @@ export const AlertsBanner: React.FC = () => {
             <span
               className="alert-agency-badge"
               style={{ background: agencyColor(a.agency_id) + "33", borderColor: agencyColor(a.agency_id), color: agencyColor(a.agency_id) }}
-              title={agencyName(a.agency_id)}
+              title={agencyName(a.agency_id, agenciesById)}
             >
               {a.agency_id}
             </span>

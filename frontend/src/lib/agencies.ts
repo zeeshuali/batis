@@ -76,18 +76,3 @@ const LEGACY_NAMES: Record<string, string> = {
   VN: "VTA",
 };
 
-// ---- Legacy exports (retained for compat; removed in Phase A-5). -----------
-/** @deprecated Read agencies from `useAgencies()` instead. */
-export interface Agency {
-  id: string;
-  name: string;
-  color: string;
-}
-
-/** @deprecated Use `useAgencies().agencies` from AgenciesContext. */
-export const AGENCY_LIST: Agency[] = Object.entries(BRAND_COLORS).map(
-  ([id, color]) => ({ id, name: LEGACY_NAMES[id] ?? id, color }),
-);
-
-/** @deprecated Use `useAgencies().agencies.map(a => a.agency_id)`. */
-export const ALL_AGENCY_IDS: string[] = AGENCY_LIST.map(a => a.id);

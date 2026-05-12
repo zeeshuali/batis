@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import axios from "axios";
 import type { LatLng, Section } from "../types";
-import { AGENCY_LIST, ALL_AGENCY_IDS } from "../lib/agencies";
+import { agencyColor } from "../lib/agencies";
+import { useAgencies } from "../context/AgenciesContext";
 import { useFilters } from "../context/FilterContext";
 import { useSelection } from "../context/SelectionContext";
 
@@ -102,13 +103,6 @@ const COVERAGE_COLOR: mapboxgl.Expression = [
   8,   "#bae6fd",
 ];
 
-// Agency color lookup for vehicle dots — flat match expression, evaluated on GPU
-const AGENCY_VEHICLE_COLOR: mapboxgl.Expression = [
-  "match", ["coalesce", ["get", "agency_id"], ""],
-  ...AGENCY_LIST.flatMap(a => [a.id, a.color]),
-  "#888888", // fallback
-];
-
 // ─── Legend definitions ───────────────────────────────────────────────────────
 
 const LEGENDS: Record<Section, { title: string; items: LegendItem[] }> = {
@@ -182,7 +176,7 @@ const LEGENDS: Record<Section, { title: string; items: LegendItem[] }> = {
   },
   vehicles: {
     title: "Live Vehicles",
-    items: AGENCY_LIST.map(a => ({ color: a.color, label: a.name })),
+    items: [], // populated dynamically from useAgencies() at render time
   },
   comparison: {
     title: "Route Comparison",
@@ -362,6 +356,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true }) =>
   // rest of the ~1,100-line component compiling unchanged.
   const { filters } = useFilters();
   const { selection, setStopId, setPlannerOrigin, setPlannerDest, resetPlanner } = useSelection();
+  const { agencies } = useAgencies();
 
   const startDate = filters.startDate;
   const endDate = filters.endDate;
@@ -736,7 +731,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true }) =>
       id: "vehicles-layer", type: "circle", source: "rt-vehicles",
       layout: { visibility: "none" },
       paint: {
-        "circle-color": AGENCY_VEHICLE_COLOR,
+        "circle-color": "#888888", // updated per-agency by the catalog effect below
         "circle-radius": 7,
         "circle-opacity": 0.9,
         "circle-stroke-width": 2,
@@ -1055,16 +1050,32 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true }) =>
   }, [activeSection]);
 
   // ── Filter vehicles layer by selected agencies ────────────────────────────
+  // Empty `selectedAgencies` means "all" (FilterContext elides the param when
+  // every pill is on); anything else is a strict subset.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoadedRef.current) return;
     if (!map.getLayer("vehicles-layer")) return;
-    const allSelected = selectedAgencies.length === ALL_AGENCY_IDS.length;
+    const allSelected = selectedAgencies.length === 0;
     map.setFilter(
       "vehicles-layer",
       allSelected ? null : ["in", ["get", "agency_id"], ["literal", selectedAgencies]],
     );
   }, [selectedAgencies]);
+
+  // ── Recolour the vehicles layer when the agency catalog loads ─────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    if (!map.getLayer("vehicles-layer")) return;
+    if (agencies.length === 0) return;
+    const expr: mapboxgl.Expression = [
+      "match", ["coalesce", ["get", "agency_id"], ""],
+      ...agencies.flatMap(a => [a.agency_id, agencyColor(a.agency_id)]),
+      "#888888",
+    ];
+    map.setPaintProperty("vehicles-layer", "circle-color", expr);
+  }, [agencies]);
 
   // ── Toggle heatmap vs dot view for reliability/bunching ──────────────────
   useEffect(() => {
@@ -1082,7 +1093,12 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true }) =>
 
   // ─── Render ──────────────────────────────────────────────────────────────────
 
-  const legend = LEGENDS[activeSection];
+  const legend: { title: string; items: LegendItem[] } = activeSection === "vehicles"
+    ? {
+        title: "Live Vehicles",
+        items: agencies.map<LegendItem>(a => ({ color: agencyColor(a.agency_id), label: a.agency_name })),
+      }
+    : LEGENDS[activeSection];
 
   return (
     <div className="map-container">

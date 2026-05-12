@@ -2,6 +2,7 @@ import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render } from "@testing-library/react";
 import { FilterProvider } from "../context/FilterContext";
+import { AgenciesProvider } from "../context/AgenciesContext";
 import { SelectionProvider } from "../context/SelectionContext";
 
 // Mock mapbox-gl entirely — jsdom can't run WebGL.
@@ -35,9 +36,11 @@ import { MapView } from "./MapView";
 
 function wrap(ui: React.ReactElement) {
   return (
-    <FilterProvider>
-      <SelectionProvider>{ui}</SelectionProvider>
-    </FilterProvider>
+    <AgenciesProvider>
+      <FilterProvider>
+        <SelectionProvider>{ui}</SelectionProvider>
+      </FilterProvider>
+    </AgenciesProvider>
   );
 }
 

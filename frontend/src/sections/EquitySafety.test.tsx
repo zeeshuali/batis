@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { FilterProvider } from "../context/FilterContext";
 import { ThemeProvider } from "../context/ThemeContext";
+import { AgenciesProvider } from "../context/AgenciesContext";
 import { SelectionProvider } from "../context/SelectionContext";
 import { EquitySafety } from "./EquitySafety";
 
@@ -52,7 +53,17 @@ vi.mock("../lib/api", async () => {
   };
 });
 
-function wrap(ui: React.ReactElement) { return <ThemeProvider><FilterProvider><SelectionProvider>{ui}</SelectionProvider></FilterProvider></ThemeProvider>; }
+function wrap(ui: React.ReactElement) {
+  return (
+    <ThemeProvider>
+      <AgenciesProvider>
+        <FilterProvider>
+          <SelectionProvider>{ui}</SelectionProvider>
+        </FilterProvider>
+      </AgenciesProvider>
+    </ThemeProvider>
+  );
+}
 
 describe("EquitySafety", () => {
   beforeEach(() => vi.clearAllMocks());

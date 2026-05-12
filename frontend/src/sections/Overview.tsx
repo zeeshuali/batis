@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useFilters } from "../context/FilterContext";
 import { useSelection } from "../context/SelectionContext";
+import { useAgencies } from "../context/AgenciesContext";
 import { api } from "../lib/api";
 import { KpiCard, DataList, TrendChart, Spinner, EmptyState, SectionError, type DataListItem, type TrendPoint } from "../components/primitives";
 import { SectionMap } from "../components/SectionMap";
@@ -11,6 +12,7 @@ import "./sections.css";
 export const Overview: React.FC = () => {
   const { filters } = useFilters();
   const { selection, setRouteId } = useSelection();
+  const { agencies } = useAgencies();
 
   const [reliabilityRows, setReliabilityRows] = useState<ReliabilityRow[]>([]);
   const [trendRows, setTrendRows] = useState<TrendRow[]>([]);
@@ -88,7 +90,7 @@ export const Overview: React.FC = () => {
       )}
 
       <div className="section__kpi-strip">
-        <KpiCard label="Routes"      value={routeCount === null ? "—" : String(routeCount)} sub={`across ${filters.agencies.length} agencies`} />
+        <KpiCard label="Routes"      value={routeCount === null ? "—" : String(routeCount)} sub={`across ${filters.agencies.length || agencies.length} agencies`} />
         <KpiCard label="Network OTP" value={fmtPct(networkOtp)} />
         <KpiCard label="Avg delay"   value={avgDelay  === null ? "—" : fmtMin(avgDelay)} deltaIsGood={false} />
         <KpiCard label="Hot stops"   value={hotStops  === null ? "—" : String(hotStops)} sub="safety score ≥ 8" deltaIsGood={false} />

@@ -21,9 +21,10 @@ function Probe() {
 describe("FilterContext", () => {
   beforeEach(() => { window.location.hash = ""; });
 
-  it("provides defaults: last 7 days, all agencies, empty search", () => {
+  it("provides defaults: last 7 days, all agencies (empty list), empty search", () => {
     render(<FilterProvider><Probe /></FilterProvider>);
-    expect(screen.getByTestId("agencies").textContent).not.toBe("");
+    // `[]` is the canonical "all agencies" value — see FilterContext.tsx.
+    expect(screen.getByTestId("agencies").textContent).toBe("");
     expect(screen.getByTestId("search").textContent).toBe("");
     expect(screen.getByTestId("start").textContent).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(screen.getByTestId("end").textContent).toMatch(/^\d{4}-\d{2}-\d{2}$/);

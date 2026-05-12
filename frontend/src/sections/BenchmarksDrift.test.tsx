@@ -2,6 +2,7 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { FilterProvider } from "../context/FilterContext";
+import { AgenciesProvider } from "../context/AgenciesContext";
 import { SelectionProvider } from "../context/SelectionContext";
 import { BenchmarksDrift } from "./BenchmarksDrift";
 
@@ -30,7 +31,15 @@ vi.mock("../lib/api", async () => {
   };
 });
 
-function wrap(ui: React.ReactElement) { return <FilterProvider><SelectionProvider>{ui}</SelectionProvider></FilterProvider>; }
+function wrap(ui: React.ReactElement) {
+  return (
+    <AgenciesProvider>
+      <FilterProvider>
+        <SelectionProvider>{ui}</SelectionProvider>
+      </FilterProvider>
+    </AgenciesProvider>
+  );
+}
 
 describe("BenchmarksDrift", () => {
   beforeEach(() => vi.clearAllMocks());

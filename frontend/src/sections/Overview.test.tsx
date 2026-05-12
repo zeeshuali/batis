@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FilterProvider } from "../context/FilterContext";
 import { ThemeProvider } from "../context/ThemeContext";
+import { AgenciesProvider } from "../context/AgenciesContext";
 import { SelectionProvider, useSelection } from "../context/SelectionContext";
 import { Overview } from "./Overview";
 
@@ -64,11 +65,13 @@ function CapturedRoute() {
 function wrap(ui: React.ReactElement) {
   return (
     <ThemeProvider>
-      <FilterProvider>
-        <SelectionProvider>
-          {ui}
-        </SelectionProvider>
-      </FilterProvider>
+      <AgenciesProvider>
+        <FilterProvider>
+          <SelectionProvider>
+            {ui}
+          </SelectionProvider>
+        </FilterProvider>
+      </AgenciesProvider>
     </ThemeProvider>
   );
 }

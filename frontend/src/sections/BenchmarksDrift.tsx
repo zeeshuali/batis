@@ -3,6 +3,7 @@ import { useFilters } from "../context/FilterContext";
 import { api } from "../lib/api";
 import { KpiCard, BarChart, DataList, Spinner, EmptyState, SectionError, ExportButton, type BarPoint, type DataListItem } from "../components/primitives";
 import { agencyColor, agencyName } from "../lib/agencies";
+import { useAgencies } from "../context/AgenciesContext";
 import { AgencyOtpRow } from "../types/data";
 import "./sections.css";
 
@@ -16,6 +17,7 @@ interface TrafficEvent {
 
 export const BenchmarksDrift: React.FC = () => {
   const { filters } = useFilters();
+  const { byId: agenciesById } = useAgencies();
   const [otp, setOtp] = useState<AgencyOtpRow[]>([]);
   const [trafficCount, setTrafficCount] = useState<number | null>(null);
   const [trafficEvents, setTrafficEvents] = useState<TrafficEvent[]>([]);
@@ -52,12 +54,8 @@ export const BenchmarksDrift: React.FC = () => {
   }, [filters.startDate, filters.endDate, tick]);
 
   // Benchmarks compares *all* agencies the backend returns — the section's
-  // whole point is cross-agency comparison. We don't apply the global agency
-  // filter here because (a) the dev DB has more agency IDs than ALL_AGENCY_IDS
-  // knows about, so filtering would silently drop unknown agencies; and
-  // (b) users who deselect an agency in the filter bar still want to *see*
-  // it in a benchmark — they'd just be deciding which agency to highlight
-  // in other sections.
+  // whole point is cross-agency comparison, so the global agency filter does
+  // not apply here.
   const bars: BarPoint[] = [...otp]
     .sort((a, b) => b.on_time_pct - a.on_time_pct)
     .map(r => ({
@@ -91,7 +89,7 @@ export const BenchmarksDrift: React.FC = () => {
 
       <div className="section__kpi-strip">
         <KpiCard label="Agencies"        value={String(bars.length)} sub="in current filter" />
-        <KpiCard label="Best OTP"        value={bars[0] ? `${bars[0].value}%` : "—"} sub={bars[0] ? agencyName(bars[0].label) : ""} />
+        <KpiCard label="Best OTP"        value={bars[0] ? `${bars[0].value}%` : "—"} sub={bars[0] ? agencyName(bars[0].label, agenciesById) : ""} />
         <KpiCard label="Traffic events"  value={trafficCount  === null ? "—" : String(trafficCount)} deltaIsGood={false} />
         <KpiCard label="Work zones"      value={workZoneCount === null ? "—" : String(workZoneCount)} />
       </div>
