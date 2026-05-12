@@ -55,6 +55,20 @@ vi.mock("../lib/api", async () => {
             { properties: { id: 2, desert_score: 0.62, notes: null } },
           ] } };
         }
+        if (url === "/agencies") {
+          return { data: [
+            { agency_id: "AC", agency_name: "AC Transit", agency_type: "bus",  monitored: true, has_data: true },
+            { agency_id: "BA", agency_name: "BART",       agency_type: "rail", monitored: true, has_data: true },
+            { agency_id: "5E", agency_name: "511 Emergency", agency_type: "other", monitored: false, has_data: false },
+          ] };
+        }
+        if (url.startsWith("/agencies/rollup")) {
+          return { data: [
+            { agency_id: "AC", agency_name: "AC Transit", monitored: true, routes_count: 76, stops_count: 4707, otp_pct: 82.5, avg_delay_seconds: 120, sample_events: 5000, hot_stops: 12, alerts_active: 3 },
+            { agency_id: "BA", agency_name: "BART",       monitored: true, routes_count: 14, stops_count:  287, otp_pct: 94.2, avg_delay_seconds:  32, sample_events: 3000, hot_stops:  1, alerts_active: 1 },
+            { agency_id: "5E", agency_name: "511 Emergency", monitored: false, routes_count: 0, stops_count: 0, otp_pct: null, avg_delay_seconds: null, sample_events: 0, hot_stops: 0, alerts_active: 0 },
+          ] };
+        }
         if (url.startsWith("/equity/score")) {
           return { data: { features: [
             { properties: { cell_id: "C1", equity_score: 0.3, low_income_population: 800, no_car_households: 120, population: 1200, equity_tier: "very_high" } },
@@ -116,6 +130,23 @@ describe("Planning", () => {
     window.location.hash = "#planning?sub=bogus";
     render(wrap(<Planning />));
     await waitFor(() => expect(screen.getByRole("heading", { name: /^Diagnostics$/i })).toBeInTheDocument());
+  });
+
+  it("Regional sub-page filters out non-useful agencies and ranks the leaderboard", async () => {
+    window.location.hash = "#planning?sub=regional";
+    render(wrap(<Planning />));
+    await waitFor(() => expect(screen.getByRole("heading", { name: /Cross-agency leaderboard/i })).toBeInTheDocument());
+    // BART + AC Transit both appear (in multiple places — leaderboard
+    // row, KPI sub-labels, etc.). Just verify presence at least once.
+    expect(screen.getAllByText("BART").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("AC Transit").length).toBeGreaterThan(0);
+    // 511 Emergency (has_data=false) is filtered out entirely.
+    expect(screen.queryByText("511 Emergency")).not.toBeInTheDocument();
+    // Best/Worst OTP show the right agency by name.
+    const bestKpi = screen.getByText(/^Best OTP$/i).closest(".kpi-card");
+    expect(bestKpi?.textContent).toMatch(/BART/);
+    const worstKpi = screen.getByText(/^Worst OTP$/i).closest(".kpi-card");
+    expect(worstKpi?.textContent).toMatch(/AC Transit/);
   });
 
   it("Coverage sub-page composes the underserved-zones list from equity × coverage", async () => {

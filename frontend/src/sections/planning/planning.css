@@ -108,3 +108,76 @@
   font-variant-numeric: tabular-nums;
   color: var(--color-fg-2);
 }
+
+/* Regional page — cross-agency leaderboard */
+.planning-leaderboard {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-sm);
+}
+.planning-leaderboard__head,
+.planning-leaderboard__row {
+  display: grid;
+  grid-template-columns: 2.5fr 0.9fr 0.7fr 0.7fr 0.7fr 0.9fr 0.7fr;
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  align-items: center;
+}
+.planning-leaderboard__head {
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--color-fg-3);
+  background: var(--color-bg-2);
+  position: sticky; top: 0;
+}
+.planning-leaderboard__body {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.planning-leaderboard__row:last-child { border-bottom: 0; }
+.planning-leaderboard__row--good {
+  background: rgba(34, 197, 94, 0.05);
+  border-left: 2px solid rgba(34, 197, 94, 0.5);
+}
+.planning-leaderboard__row--bad {
+  background: rgba(239, 68, 68, 0.06);
+  border-left: 2px solid rgba(239, 68, 68, 0.5);
+}
+
+.planning-leaderboard__code {
+  display: inline-block;
+  width: 28px;
+  font-weight: 600;
+  font-size: var(--text-xs);
+  letter-spacing: 0.5px;
+}
+.planning-leaderboard__name { color: var(--color-fg-1); }
+.planning-leaderboard__mode { color: var(--color-fg-2); font-size: var(--text-xs); }
+
+/* Regional page — modal share legend */
+.planning-modal-legend {
+  list-style: none;
+  margin: 0; padding: 0;
+  display: flex; flex-direction: column;
+  gap: 6px;
+  flex: 1 1 45%;
+}
+.planning-modal-legend li {
+  display: grid;
+  grid-template-columns: 12px 100px 1fr;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+.planning-modal-legend__swatch {
+  width: 12px; height: 12px;
+  border-radius: 2px;
+}
+.planning-modal-legend__label { color: var(--color-fg-1); }
+.planning-modal-legend__value {
+  text-align: right;
+  color: var(--color-fg-2);
+  font-variant-numeric: tabular-nums;
+}

@@ -127,12 +127,12 @@ export const Overview: React.FC = () => {
           <ExportButton
             filename="agencies-rollup.csv"
             rows={rollups.map(r => ({
-              agency_id:     r.agency_id,
-              agency_name:   r.agency_name ?? r.agency_id,
-              routes_count:  r.routes_count ?? 0,
-              alerts_active: r.alerts_active ?? 0,
-              otp_7d:        r.otp_7d ?? null,
-              avg_delay_7d:  r.avg_delay_7d ?? null,
+              agency_id:         r.agency_id,
+              agency_name:       r.agency_name ?? r.agency_id,
+              routes_count:      r.routes_count ?? 0,
+              alerts_active:     r.alerts_active ?? 0,
+              otp_pct:           r.otp_pct ?? null,
+              avg_delay_seconds: r.avg_delay_seconds ?? null,
             }))}
           />
         </div>
@@ -144,7 +144,7 @@ export const Overview: React.FC = () => {
               id:        r.agency_id,
               primary:   r.agency_name ?? r.agency_id,
               secondary: `${r.routes_count ?? 0} routes · ${r.alerts_active ?? 0} alerts`,
-              trailing:  fmtPct(r.otp_7d),
+              trailing:  fmtPct(r.otp_pct),
             }))}
             onSelect={(id) => setState({ ...state, section: "agency", agency_id: id })}
           />

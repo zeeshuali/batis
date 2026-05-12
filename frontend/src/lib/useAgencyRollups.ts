@@ -2,14 +2,16 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 
 export interface AgencyRollup {
-  agency_id:     string;
-  agency_name:   string | null;
-  routes_count:  number | null;
-  stops_count:   number | null;
-  otp_7d:        number | null;   // 0..100
-  avg_delay_7d:  number | null;   // seconds
-  alerts_active: number | null;
-  hot_stops:     number | null;
+  agency_id:          string;
+  agency_name:        string | null;
+  monitored:          boolean | null;
+  routes_count:       number | null;
+  stops_count:        number | null;
+  otp_pct:            number | null;   // 0..100
+  avg_delay_seconds:  number | null;
+  sample_events:      number | null;
+  hot_stops:          number | null;
+  alerts_active:      number | null;
 }
 
 /** Fetch the per-agency KPI rollup for a date window.  Mirrors the inline
