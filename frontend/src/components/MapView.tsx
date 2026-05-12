@@ -969,19 +969,34 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true }) =>
   // ── Cross-filter stop-circle layers when a route is selected ────────────────
   // Stop properties typically expose either `route_id` (single-route stops)
   // or `routes_serving` (a comma-separated list). Match either.
+  // Also AND in the global search box (filters.search) when set.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const apply = () => {
       if (!map.isStyleLoaded()) return;
       const rid = selectedRouteId;
-      const filter: any = rid
-        ? [
-            "any",
-            ["==", ["get", "route_id"], rid],
-            ["in", rid, ["coalesce", ["get", "routes_serving"], ""]],
-          ]
-        : null;
+      const search = (filters.search || "").trim().toLowerCase();
+
+      const clauses: any[] = [];
+      if (rid) {
+        clauses.push([
+          "any",
+          ["==", ["get", "route_id"], rid],
+          ["in", rid, ["coalesce", ["get", "routes_serving"], ""]],
+        ]);
+      }
+      if (search) {
+        clauses.push([
+          "any",
+          ["in", search, ["downcase", ["coalesce", ["get", "route_id"], ""]]],
+          ["in", search, ["downcase", ["coalesce", ["get", "routes_serving"], ""]]],
+        ]);
+      }
+      const filter: any = clauses.length === 0 ? null
+        : clauses.length === 1 ? clauses[0]
+        : ["all", ...clauses];
+
       for (const layerId of [
         "reliability-layer",
         "reliability-layer-border",
@@ -1001,7 +1016,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true }) =>
     } else {
       map.once("style.load", apply);
     }
-  }, [selectedRouteId]);
+  }, [selectedRouteId, filters.search]);
 
   // ── Poll vehicles every 30s when in vehicles section ─────────────────────
   useEffect(() => {
