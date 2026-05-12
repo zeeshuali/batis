@@ -16,7 +16,7 @@ export function toCsv<T extends Record<string, unknown>>(rows: T[]): string {
 function escape(value: unknown): string {
   if (value === null || value === undefined) return "";
   const s = String(value);
-  if (/[",\n]/.test(s)) {
+  if (/[",\n\r]/.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;
   }
   return s;

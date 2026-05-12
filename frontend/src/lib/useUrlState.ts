@@ -52,8 +52,16 @@ export function useUrlState() {
 
   const setState = useCallback((next: UrlState) => {
     const hash = encodeHash(next);
-    if (hash !== window.location.hash) window.location.hash = hash;
-    setStateImpl(next);
+    if (hash !== window.location.hash) {
+      // Writing window.location.hash fires `hashchange` synchronously, and
+      // the listener above will then call setStateImpl. Don't call it
+      // directly here or we double-render on every filter change.
+      window.location.hash = hash;
+    } else {
+      // No hash change means no listener fires; update state directly so
+      // re-setting an unchanged state still works (e.g. forcing a refetch).
+      setStateImpl(next);
+    }
   }, []);
 
   return { state, setState, defaults: DEFAULT_STATE };
