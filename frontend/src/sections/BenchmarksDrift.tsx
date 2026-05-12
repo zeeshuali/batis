@@ -36,8 +36,14 @@ export const BenchmarksDrift: React.FC = () => {
     return () => { cancelled = true; };
   }, [filters.startDate, filters.endDate]);
 
+  // Benchmarks compares *all* agencies the backend returns — the section's
+  // whole point is cross-agency comparison. We don't apply the global agency
+  // filter here because (a) the dev DB has more agency IDs than ALL_AGENCY_IDS
+  // knows about, so filtering would silently drop unknown agencies; and
+  // (b) users who deselect an agency in the filter bar still want to *see*
+  // it in a benchmark — they'd just be deciding which agency to highlight
+  // in other sections.
   const bars: BarPoint[] = [...otp]
-    .filter(r => filters.agencies.includes(r.agency_id))
     .sort((a, b) => b.on_time_pct - a.on_time_pct)
     .map(r => ({
       label: r.agency_id,
