@@ -89,6 +89,13 @@ describe("AppShell", () => {
     expect(document.querySelector(".stop-drawer--open")).not.toBeInTheDocument();
   });
 
+  it("writes the hash when a tab is clicked", async () => {
+    window.location.hash = "";
+    render(wrap(<AppShell />));
+    await userEvent.click(screen.getByRole("tab", { name: "Equity & Safety" }));
+    expect(window.location.hash).toBe("#equity");
+  });
+
   it("renders a theme toggle that flips data-theme on <html>", async () => {
     document.documentElement.removeAttribute("data-theme");
     window.localStorage.clear();

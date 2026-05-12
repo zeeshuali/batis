@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import { FilterBar } from "./FilterBar";
 import { AlertsBanner } from "./AlertsBanner";
 import { StopDrawer } from "./StopDrawer";
@@ -8,9 +8,10 @@ import { Network } from "../sections/Network";
 import { EquitySafety } from "../sections/EquitySafety";
 import { BenchmarksDrift } from "../sections/BenchmarksDrift";
 import { useTheme } from "../context/ThemeContext";
+import { useSectionRoute, type SectionKey } from "../lib/useSectionRoute";
 import "../design/shell.css";
 
-export type SectionKey = "overview" | "operations" | "network" | "equity" | "benchmarks";
+export type { SectionKey } from "../lib/useSectionRoute";
 
 const TABS: { key: SectionKey; label: string }[] = [
   { key: "overview",   label: "Overview"          },
@@ -21,7 +22,7 @@ const TABS: { key: SectionKey; label: string }[] = [
 ];
 
 export const AppShell: React.FC = () => {
-  const [active, setActive] = useState<SectionKey>("overview");
+  const { section: active, setSection: setActive } = useSectionRoute();
   const { theme, toggle } = useTheme();
 
   return (
