@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import { agencyColor, agencyName } from "../lib/agencies";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || "http://localhost:8000";
 const API_KEY  = (import.meta.env.VITE_API_KEY  as string) || "";
@@ -11,6 +12,7 @@ interface StopDetail {
   stop_name: string | null;
   stop_lat: number;
   stop_lon: number;
+  agency_id: string | null;
   safety_score: number;
   crime_incidents_nearby: number;
   collisions_nearby: number;
@@ -20,6 +22,16 @@ interface StopDetail {
   nearby_incidents: { incident_type: string; severity: number; date: string | null; distance_m: number }[];
 }
 
+interface LiveDeparture {
+  route_id: string;
+  route_short_name: string;
+  headsign: string | null;
+  expected_arrival: string | null;
+  aimed_arrival: string | null;
+  delay_seconds: number | null;
+  is_realtime: boolean;
+}
+
 interface Props { stopId: string | null; onClose: () => void; }
 
 function fmt(n: number | null | undefined, dec = 0) {
@@ -27,15 +39,32 @@ function fmt(n: number | null | undefined, dec = 0) {
   return Number(n).toFixed(dec);
 }
 
+function fmtArrival(s: string | null | undefined): string {
+  if (!s) return "—";
+  if (s.includes("T")) {
+    // ISO 8601 from SIRI (e.g. "2026-01-01T10:30:00Z")
+    return new Date(s).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+  return s.slice(0, 5); // GTFS HH:MM:SS → HH:MM
+}
+
 export const StopDrawer: React.FC<Props> = ({ stopId, onClose }) => {
   const [detail, setDetail] = useState<StopDetail | null>(null);
+  const [liveDepartures, setLiveDepartures] = useState<LiveDeparture[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!stopId) { setDetail(null); return; }
+    if (!stopId) { setDetail(null); setLiveDepartures([]); return; }
     setLoading(true);
-    axios.get(`${API_BASE}/stops/${encodeURIComponent(stopId)}`, { headers: h() })
-      .then(r => setDetail(r.data))
+    const sid = encodeURIComponent(stopId);
+    Promise.all([
+      axios.get(`${API_BASE}/stops/${sid}`, { headers: h() }),
+      axios.get(`${API_BASE}/stops/${sid}/live-departures`, { headers: h() }).catch(() => ({ data: [] })),
+    ])
+      .then(([detailResp, liveResp]) => {
+        setDetail(detailResp.data);
+        setLiveDepartures(Array.isArray(liveResp.data) ? liveResp.data : []);
+      })
       .catch(() => setDetail(null))
       .finally(() => setLoading(false));
   }, [stopId]);
@@ -51,6 +80,15 @@ export const StopDrawer: React.FC<Props> = ({ stopId, onClose }) => {
         <div className="stop-drawer-title">
           {loading ? "Loading…" : (detail?.stop_name ?? `Stop ${stopId}`)}
           {detail?.stop_code && <span className="stop-drawer-code">#{detail.stop_code}</span>}
+          {detail?.agency_id && (
+            <span
+              className="agency-badge"
+              style={{ background: agencyColor(detail.agency_id) + "33", borderColor: agencyColor(detail.agency_id), color: agencyColor(detail.agency_id) }}
+              title={agencyName(detail.agency_id)}
+            >
+              {detail.agency_id}
+            </span>
+          )}
         </div>
         <button className="stop-drawer-close" onClick={onClose} aria-label="Close">✕</button>
       </div>
@@ -119,18 +157,47 @@ export const StopDrawer: React.FC<Props> = ({ stopId, onClose }) => {
             </section>
           )}
 
-          {/* Scheduled departures */}
-          {detail.departures.length > 0 && (
+          {/* Departures — live ETAs from 511.org SIRI when available, scheduled fallback */}
+          {(liveDepartures.length > 0 || detail.departures.length > 0) && (
             <section className="drawer-section">
-              <h4 className="drawer-section-title">Scheduled Departures</h4>
+              <h4 className="drawer-section-title">Departures</h4>
               <ul className="drawer-departures">
-                {detail.departures.map((d, i) => (
-                  <li key={i} className="departure-row">
-                    <span className="departure-time">{d.departure_time}</span>
-                    <span className="departure-route">Rt {d.route_short_name || d.route_id}</span>
-                    <span className="departure-headsign">{d.trip_headsign ?? ""}</span>
-                  </li>
-                ))}
+                {liveDepartures.length > 0
+                  ? liveDepartures.map((d, i) => {
+                      const delayMin = d.delay_seconds != null ? Math.round(d.delay_seconds / 60) : null;
+                      const isLate = d.delay_seconds != null && d.delay_seconds > 60;
+                      const delayColor = d.delay_seconds == null
+                        ? "#94a3b8"
+                        : d.delay_seconds <= 60 ? "#22c55e"
+                        : d.delay_seconds <= 300 ? "#f97316"
+                        : "#ef4444";
+                      return (
+                        <li key={i} className="departure-row">
+                          <span className="departure-time">{fmtArrival(d.expected_arrival)}</span>
+                          <span className="departure-route">Rt {d.route_short_name || d.route_id}</span>
+                          <span className="departure-headsign">{d.headsign ?? ""}</span>
+                          <span className="departure-badges" style={{marginLeft:"auto",display:"flex",gap:"0.3rem",alignItems:"center"}}>
+                            {d.is_realtime
+                              ? <span className="live-badge">LIVE</span>
+                              : <span className="scheduled-badge">Scheduled</span>}
+                            {delayMin != null && (
+                              <span className="departure-delay" style={{color: delayColor, fontWeight: 600}}>
+                                {delayMin === 0 ? "On time" : delayMin > 0 ? `+${delayMin}m` : `${delayMin}m`}
+                              </span>
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })
+                  : detail.departures.map((d, i) => (
+                      <li key={i} className="departure-row">
+                        <span className="departure-time">{d.departure_time}</span>
+                        <span className="departure-route">Rt {d.route_short_name || d.route_id}</span>
+                        <span className="departure-headsign">{d.trip_headsign ?? ""}</span>
+                        <span style={{marginLeft:"auto"}}><span className="scheduled-badge">Scheduled</span></span>
+                      </li>
+                    ))
+                }
               </ul>
             </section>
           )}
