@@ -39,8 +39,11 @@ vi.mock("../lib/api", async () => {
         }
         if (url.startsWith("/safety/stops")) {
           return { data: [
-            { stop_id: "S001", stop_name: "Hot 1", safety_score: 12 },
-            { stop_id: "S002", stop_name: "Hot 2", safety_score: 9 },
+            { stop_id: "S0", stop_name: "Low 0",  safety_score: 1 },
+            { stop_id: "S1", stop_name: "Mid 1",  safety_score: 3 },
+            { stop_id: "S2", stop_name: "Mid 2",  safety_score: 6 },
+            { stop_id: "S3", stop_name: "Hot 3",  safety_score: 9 },
+            { stop_id: "S4", stop_name: "Hot 4",  safety_score: 12 },
           ] };
         }
         return { data: [] };
@@ -56,9 +59,14 @@ describe("EquitySafety", () => {
 
   it("renders the four KPIs and a hot-stops list", async () => {
     render(wrap(<EquitySafety />));
-    await waitFor(() => expect(screen.getByText(/Hot 1/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Hot 3/i)).toBeInTheDocument());
     expect(screen.getByText(/Tracts/i)).toBeInTheDocument();
     expect(screen.getByText(/Avg equity/i)).toBeInTheDocument();
     expect(screen.getByText(/Hot stops/i)).toBeInTheDocument();
+  });
+
+  it("renders a safety score distribution chart", async () => {
+    render(wrap(<EquitySafety />));
+    await waitFor(() => expect(screen.getByRole("heading", { name: /Safety score distribution/i })).toBeInTheDocument());
   });
 });
