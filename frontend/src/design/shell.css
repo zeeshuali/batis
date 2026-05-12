@@ -1,0 +1,110 @@
+@import "./tokens.css";
+
+/* Reset */
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+  color: var(--color-fg-0);
+  background: var(--color-bg-0);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* AppShell grid */
+.shell {
+  display: grid;
+  grid-template-rows:
+    var(--shell-header-h)
+    var(--shell-filterbar-h)
+    1fr;
+  grid-template-columns: 1fr var(--shell-rail-w);
+  grid-template-areas:
+    "header   header"
+    "filter   filter"
+    "main     rail";
+  height: 100vh;
+  width: 100vw;
+}
+
+.shell--rail-collapsed {
+  grid-template-columns: 1fr 0;
+}
+
+.shell-header     { grid-area: header; }
+.shell-filterbar  { grid-area: filter; }
+.shell-main       { grid-area: main; overflow: auto; }
+.shell-rail       { grid-area: rail; overflow: hidden; border-left: 1px solid var(--color-border); }
+
+/* Header */
+.shell-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: 0 var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-1);
+}
+
+.shell-header__brand {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-fg-0);
+}
+
+.shell-nav {
+  display: flex;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+.shell-nav__tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-fg-2);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: var(--text-sm);
+  border-radius: var(--radius-2);
+  cursor: pointer;
+  transition: color 120ms, background 120ms, border-color 120ms;
+}
+
+.shell-nav__tab:hover {
+  color: var(--color-fg-0);
+  background: var(--color-bg-2);
+}
+
+.shell-nav__tab--active {
+  color: var(--color-fg-0);
+  background: var(--color-bg-2);
+  border-color: var(--color-border);
+}
+
+/* Filter bar */
+.shell-filterbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-1);
+  font-size: var(--text-sm);
+}
+
+/* Agent rail placeholder */
+.shell-rail__placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-fg-3);
+  font-size: var(--text-sm);
+  padding: var(--space-4);
+  text-align: center;
+}
