@@ -27,6 +27,9 @@ export interface MapViewProps {
   mapMode: Section;
   /** Dark map style is the only style supported today; light parity is Plan 1c. */
   darkMode?: boolean;
+  /** Narrow the stop / vehicle layers to a single agency and fit the
+   *  viewport to its stops. Used by the per-agency drill-down view. */
+  agencyFilter?: string | null;
 }
 
 interface LegendItem {
@@ -351,7 +354,7 @@ function setSource(map: mapboxgl.Map, id: string, data: GeoJSON.FeatureCollectio
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true }) => {
+export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agencyFilter = null }) => {
   // Read filter + selection from contexts. Local aliases below keep the
   // rest of the ~1,100-line component compiling unchanged.
   const { filters } = useFilters();
@@ -988,6 +991,9 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true }) =>
           ["in", search, ["downcase", ["coalesce", ["get", "routes_serving"], ""]]],
         ]);
       }
+      if (agencyFilter) {
+        clauses.push(["==", ["get", "agency_id"], agencyFilter]);
+      }
       const filter: any = clauses.length === 0 ? null
         : clauses.length === 1 ? clauses[0]
         : ["all", ...clauses];
@@ -1011,7 +1017,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true }) =>
     } else {
       map.once("style.load", apply);
     }
-  }, [selectedRouteId, filters.search]);
+  }, [selectedRouteId, filters.search, agencyFilter]);
 
   // ── Poll vehicles every 30s when in vehicles section ─────────────────────
   useEffect(() => {
@@ -1076,6 +1082,35 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true }) =>
     ];
     map.setPaintProperty("vehicles-layer", "circle-color", expr);
   }, [agencies]);
+
+  // ── When entering an agency drill-down, fit the viewport to its stops ────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    if (!agencyFilter) return;
+    let cancelled = false;
+    axios.get(`${API_BASE}/safety/stops/geo`, {
+      headers: apiHeaders(),
+      params: { agency_id: agencyFilter },
+    }).then(res => {
+      if (cancelled) return;
+      const feats: { geometry?: { coordinates?: [number, number] } }[] =
+        res.data?.features ?? [];
+      const coords = feats
+        .map(f => f.geometry?.coordinates)
+        .filter((c): c is [number, number] => Array.isArray(c) && c.length === 2);
+      if (coords.length === 0) return;
+      const lons = coords.map(c => c[0]);
+      const lats = coords.map(c => c[1]);
+      const bounds: [[number, number], [number, number]] = [
+        [Math.min(...lons), Math.min(...lats)],
+        [Math.max(...lons), Math.max(...lats)],
+      ];
+      try { map.fitBounds(bounds, { padding: 40, duration: 600 }); }
+      catch { /* invalid bounds */ }
+    }).catch(() => { /* network error — leave the viewport alone */ });
+    return () => { cancelled = true; };
+  }, [agencyFilter]);
 
   // ── Toggle heatmap vs dot view for reliability/bunching ──────────────────
   useEffect(() => {
