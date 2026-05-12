@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useFilters } from "../context/FilterContext";
 import { useSelection } from "../context/SelectionContext";
 import { api } from "../lib/api";
-import { KpiCard, DataList, Spinner, EmptyState, type DataListItem } from "../components/primitives";
+import { KpiCard, DataList, Spinner, EmptyState, SectionError, type DataListItem } from "../components/primitives";
 import { SectionMap } from "../components/SectionMap";
 import { ReliabilityRow, VehicleFC, BunchingRow } from "../types/data";
 import { fmtMin, fmtPct } from "../lib/format";
@@ -16,11 +16,14 @@ export const Operations: React.FC = () => {
   const [vehicleCount, setVehicleCount] = useState<number>(0);
   const [bunching, setBunching] = useState<BunchingRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     async function fetchAll() {
       setLoading(true);
+      setError(null);
       try {
         const [rel, veh, bun] = await Promise.all([
           api.get<ReliabilityRow[]>("/reliability/summary", { params: { start_date: filters.startDate, end_date: filters.endDate } }).catch(() => ({ data: [] as ReliabilityRow[] })),
@@ -31,13 +34,15 @@ export const Operations: React.FC = () => {
         setReliability(rel.data ?? []);
         setVehicleCount(veh.data?.features?.length ?? 0);
         setBunching(bun.data ?? []);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load");
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
     fetchAll();
     return () => { cancelled = true; };
-  }, [filters.startDate, filters.endDate]);
+  }, [filters.startDate, filters.endDate, tick]);
 
   const totalEvents = reliability.reduce((s, r) => s + r.sample_events, 0);
   const networkOtp = totalEvents > 0
@@ -66,6 +71,13 @@ export const Operations: React.FC = () => {
         <h2 className="section__title">Operations</h2>
         <span className="section__subtitle">{filters.startDate} → {filters.endDate}</span>
       </div>
+
+      {error && (
+        <SectionError
+          message={error}
+          onRetry={() => setTick(t => t + 1)}
+        />
+      )}
 
       <div className="section__kpi-strip">
         <KpiCard label="Network OTP"   value={fmtPct(networkOtp)} />

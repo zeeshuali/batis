@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useFilters } from "../context/FilterContext";
 import { useSelection } from "../context/SelectionContext";
 import { api } from "../lib/api";
-import { KpiCard, DataList, Spinner, EmptyState, type DataListItem } from "../components/primitives";
+import { KpiCard, DataList, Spinner, EmptyState, SectionError, type DataListItem } from "../components/primitives";
 import { SectionMap } from "../components/SectionMap";
 import { SafetyRow } from "../types/data";
 import "./sections.css";
@@ -16,11 +16,14 @@ export const EquitySafety: React.FC = () => {
   const [equityFeatures, setEquityFeatures] = useState<EquityFeature[]>([]);
   const [hotStops, setHotStops] = useState<SafetyRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     async function fetchAll() {
       setLoading(true);
+      setError(null);
       try {
         const [eq, hot] = await Promise.all([
           api.get<{ features: EquityFeature[] }>("/equity/score").catch(() => ({ data: { features: [] } })),
@@ -29,13 +32,15 @@ export const EquitySafety: React.FC = () => {
         if (cancelled) return;
         setEquityFeatures(eq.data?.features ?? []);
         setHotStops(hot.data ?? []);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load");
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
     fetchAll();
     return () => { cancelled = true; };
-  }, []);
+  }, [tick]);
 
   const tractCount = equityFeatures.length;
   const avgEquity = tractCount > 0
@@ -59,6 +64,13 @@ export const EquitySafety: React.FC = () => {
         <h2 className="section__title">Equity &amp; Safety</h2>
         <span className="section__subtitle">Tract-level service equity and stop risk</span>
       </div>
+
+      {error && (
+        <SectionError
+          message={error}
+          onRetry={() => setTick(t => t + 1)}
+        />
+      )}
 
       <div className="section__kpi-strip">
         <KpiCard label="Tracts"          value={String(tractCount)} sub="with equity score" />

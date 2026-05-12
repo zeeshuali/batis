@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useFilters } from "../context/FilterContext";
 import { api } from "../lib/api";
-import { KpiCard, BarChart, Spinner, EmptyState, type BarPoint } from "../components/primitives";
+import { KpiCard, BarChart, Spinner, EmptyState, SectionError, type BarPoint } from "../components/primitives";
 import { agencyColor, agencyName } from "../lib/agencies";
 import { AgencyOtpRow } from "../types/data";
 import "./sections.css";
@@ -12,11 +12,14 @@ export const BenchmarksDrift: React.FC = () => {
   const [trafficCount, setTrafficCount] = useState<number | null>(null);
   const [workZoneCount, setWorkZoneCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     async function fetchAll() {
       setLoading(true);
+      setError(null);
       try {
         const [otpRes, eventsRes, wzRes] = await Promise.all([
           api.get<AgencyOtpRow[]>("/benchmarks/agency-otp", { params: { start_date: filters.startDate, end_date: filters.endDate } }).catch(() => ({ data: [] })),
@@ -27,13 +30,15 @@ export const BenchmarksDrift: React.FC = () => {
         setOtp(otpRes.data ?? []);
         setTrafficCount(eventsRes.data?.features?.length ?? 0);
         setWorkZoneCount(wzRes.data?.features?.length ?? 0);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load");
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
     fetchAll();
     return () => { cancelled = true; };
-  }, [filters.startDate, filters.endDate]);
+  }, [filters.startDate, filters.endDate, tick]);
 
   // Benchmarks compares *all* agencies the backend returns — the section's
   // whole point is cross-agency comparison. We don't apply the global agency
@@ -56,6 +61,13 @@ export const BenchmarksDrift: React.FC = () => {
         <h2 className="section__title">Benchmarks &amp; Drift</h2>
         <span className="section__subtitle">Agency OTP comparison · roadway disruptions</span>
       </div>
+
+      {error && (
+        <SectionError
+          message={error}
+          onRetry={() => setTick(t => t + 1)}
+        />
+      )}
 
       <div className="section__kpi-strip">
         <KpiCard label="Agencies"        value={String(bars.length)} sub="in current filter" />

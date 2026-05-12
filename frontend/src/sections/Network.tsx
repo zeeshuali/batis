@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useFilters } from "../context/FilterContext";
 import { useSelection } from "../context/SelectionContext";
 import { api } from "../lib/api";
-import { KpiCard, DataList, Spinner, EmptyState, type DataListItem } from "../components/primitives";
+import { KpiCard, DataList, Spinner, EmptyState, SectionError, type DataListItem } from "../components/primitives";
 import { SectionMap } from "../components/SectionMap";
 import { agencyName } from "../lib/agencies";
 import { RouteRow } from "../types/data";
@@ -16,11 +16,14 @@ export const Network: React.FC = () => {
   const [cellCount, setCellCount]   = useState<number | null>(null);
   const [desertCount, setDesertCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     async function fetchAll() {
       setLoading(true);
+      setError(null);
       try {
         const [routesRes, cellsRes, desertsRes] = await Promise.all([
           api.get<RouteRow[]>("/routes"),
@@ -31,13 +34,15 @@ export const Network: React.FC = () => {
         setRoutes(routesRes.data ?? []);
         setCellCount(cellsRes.data?.features?.length ?? 0);
         setDesertCount(desertsRes.data?.features?.length ?? 0);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load");
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
     fetchAll();
     return () => { cancelled = true; };
-  }, []);
+  }, [tick]);
 
   const filtered: DataListItem[] = routes
     .filter(r => filters.agencies.length === 0 || (r.agency_id && filters.agencies.includes(r.agency_id)))
@@ -55,6 +60,13 @@ export const Network: React.FC = () => {
         <h2 className="section__title">Network</h2>
         <span className="section__subtitle">Routes · coverage · service deserts</span>
       </div>
+
+      {error && (
+        <SectionError
+          message={error}
+          onRetry={() => setTick(t => t + 1)}
+        />
+      )}
 
       <div className="section__kpi-strip">
         <KpiCard label="Total routes"    value={String(routes.length)} sub={`${filters.agencies.length} agencies`} />

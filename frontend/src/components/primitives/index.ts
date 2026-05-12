@@ -8,3 +8,5 @@ export { BarChart } from "./BarChart";
 export type { BarChartProps, BarPoint } from "./BarChart";
 export { Spinner } from "./Spinner";
 export { EmptyState } from "./EmptyState";
+export { SectionError } from "./SectionError";
+export type { SectionErrorProps } from "./SectionError";

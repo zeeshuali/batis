@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useFilters } from "../context/FilterContext";
 import { useSelection } from "../context/SelectionContext";
 import { api } from "../lib/api";
-import { KpiCard, DataList, TrendChart, Spinner, EmptyState, type DataListItem, type TrendPoint } from "../components/primitives";
+import { KpiCard, DataList, TrendChart, Spinner, EmptyState, SectionError, type DataListItem, type TrendPoint } from "../components/primitives";
 import { SectionMap } from "../components/SectionMap";
 import { ReliabilityRow, TrendRow, SafetyRow } from "../types/data";
 import { fmtMin, fmtPct } from "../lib/format";
@@ -17,11 +17,14 @@ export const Overview: React.FC = () => {
   const [routeCount, setRouteCount] = useState<number | null>(null);
   const [hotStops, setHotStops] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     async function fetchAll() {
       setLoading(true);
+      setError(null);
       try {
         const [rel, trend, routes, safety] = await Promise.all([
           api.get<ReliabilityRow[]>("/reliability/summary", { params: { start_date: filters.startDate, end_date: filters.endDate } }),
@@ -34,13 +37,15 @@ export const Overview: React.FC = () => {
         setTrendRows(trend.data ?? []);
         setRouteCount(routes.data?.length ?? 0);
         setHotStops(safety.data?.length ?? 0);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load");
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
     fetchAll();
     return () => { cancelled = true; };
-  }, [filters.startDate, filters.endDate]);
+  }, [filters.startDate, filters.endDate, tick]);
 
   const totalEvents = reliabilityRows.reduce((s, r) => s + (r.sample_events || 0), 0);
   const networkOtp = totalEvents > 0
@@ -74,6 +79,13 @@ export const Overview: React.FC = () => {
         <h2 className="section__title">Overview</h2>
         <span className="section__subtitle">Network health · {filters.startDate} → {filters.endDate}</span>
       </div>
+
+      {error && (
+        <SectionError
+          message={error}
+          onRetry={() => setTick(t => t + 1)}
+        />
+      )}
 
       <div className="section__kpi-strip">
         <KpiCard label="Routes"      value={routeCount === null ? "—" : String(routeCount)} sub={`across ${filters.agencies.length} agencies`} />
