@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import { useSelection } from "../context/SelectionContext";
 import { agencyColor, agencyName } from "../lib/agencies";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || "http://localhost:8000";
@@ -32,8 +33,6 @@ interface LiveDeparture {
   is_realtime: boolean;
 }
 
-interface Props { stopId: string | null; onClose: () => void; }
-
 function fmt(n: number | null | undefined, dec = 0) {
   if (n == null || isNaN(Number(n))) return "—";
   return Number(n).toFixed(dec);
@@ -48,7 +47,10 @@ function fmtArrival(s: string | null | undefined): string {
   return s.slice(0, 5); // GTFS HH:MM:SS → HH:MM
 }
 
-export const StopDrawer: React.FC<Props> = ({ stopId, onClose }) => {
+export const StopDrawer: React.FC = () => {
+  const { selection, setStopId } = useSelection();
+  const stopId = selection.stopId;
+  const onClose = () => setStopId(null);
   const [detail, setDetail] = useState<StopDetail | null>(null);
   const [liveDepartures, setLiveDepartures] = useState<LiveDeparture[]>([]);
   const [loading, setLoading] = useState(false);
