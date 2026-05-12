@@ -1,41 +1,72 @@
-version: "3.9"
-
 services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: bay_area_transit_intel
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-batis_dev}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres-test:
+    image: postgis/postgis:15-3.4
+    environment:
+      POSTGRES_DB: bay_area_transit_intel_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/bay_area_transit_intel
-      ACTRANSIT_API_KEY: ${ACTRANSIT_API_KEY}
-      BACKEND_API_KEY: ${BACKEND_API_KEY}
     ports:
       - "8000:8000"
-    depends_on:
-      - db
-
-  rt-worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    command: ["python", "-m", "app.workers.run_rt_ingestor"]
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/bay_area_transit_intel
-      ACTRANSIT_API_KEY: ${ACTRANSIT_API_KEY}
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-batis_dev}@postgres:5432/bay_area_transit_intel
+      FIVE11_API_KEY: ${FIVE11_API_KEY:-}
+      ACTRANSIT_API_KEY: ${ACTRANSIT_API_KEY:-}
+      BACKEND_API_KEY: ${BACKEND_API_KEY:-}
+      GTFS_STATIC_URL: ${GTFS_STATIC_URL:-https://opendata.actransit.org/transitdata/google_transit.zip}
+      OLLAMA_URL: http://host.docker.internal:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+      EMBED_MODEL_NAME: ${EMBED_MODEL_NAME:-all-MiniLM-L6-v2}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
     depends_on:
-      - db
-
-  db:
-    image: postgis/postgis:15-3.4
-    environment:
-      POSTGRES_DB: bay_area_transit_intel
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
+      postgres:
+        condition: service_healthy
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_MAPBOX_TOKEN: ${VITE_MAPBOX_TOKEN:-}
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+      VITE_API_KEY: ${VITE_API_KEY:-}
+    volumes:
+      - ./frontend/src:/app/src
 
 volumes:
-  db_data: {}
-
+  postgres_data:
