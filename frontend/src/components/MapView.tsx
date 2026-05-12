@@ -959,6 +959,43 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true }) =>
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRouteId]);
 
+  // ── Cross-filter stop-circle layers when a route is selected ────────────────
+  // Stop properties typically expose either `route_id` (single-route stops)
+  // or `routes_serving` (a comma-separated list). Match either.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const apply = () => {
+      if (!map.isStyleLoaded()) return;
+      const rid = selectedRouteId;
+      const filter: any = rid
+        ? [
+            "any",
+            ["==", ["get", "route_id"], rid],
+            ["in", rid, ["coalesce", ["get", "routes_serving"], ""]],
+          ]
+        : null;
+      for (const layerId of [
+        "reliability-layer",
+        "reliability-layer-border",
+        "safety-layer",
+        "safety-layer-border",
+        "crowding-layer",
+        "crowding-layer-border",
+        "demand-layer",
+      ]) {
+        if (map.getLayer(layerId)) {
+          try { map.setFilter(layerId, filter); } catch { /* ignore unsupported layer types */ }
+        }
+      }
+    };
+    if (map.isStyleLoaded()) {
+      apply();
+    } else {
+      map.once("style.load", apply);
+    }
+  }, [selectedRouteId]);
+
   // ── Poll vehicles every 30s when in vehicles section ─────────────────────
   useEffect(() => {
     if (activeSection !== "vehicles") return;
