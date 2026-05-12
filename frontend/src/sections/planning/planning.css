@@ -67,3 +67,44 @@
   color: var(--color-fg-1);
 }
 .planning-placeholder__features li { margin: 2px 0; }
+
+/* Coverage page — equity tier breakdown */
+.planning-coverage-tiers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.planning-coverage-tier {
+  display: grid;
+  grid-template-columns: 110px 1fr 1fr 56px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 6px var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-1);
+  background: var(--color-bg-1);
+  font-size: var(--text-sm);
+}
+.planning-coverage-tier__chip {
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+  border: 1px solid currentColor;
+  text-align: center;
+}
+.planning-coverage-tier__chip--very_high { color: #dc2626; }
+.planning-coverage-tier__chip--high      { color: #f97316; }
+.planning-coverage-tier__chip--medium    { color: #facc15; }
+.planning-coverage-tier__chip--low       { color: #22c55e; }
+.planning-coverage-tier__count { color: var(--color-fg-1); }
+.planning-coverage-tier__pop   { color: var(--color-fg-2); }
+.planning-coverage-tier__pct {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg-2);
+}
