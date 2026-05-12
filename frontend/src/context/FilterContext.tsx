@@ -1,5 +1,6 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useMemo } from "react";
 import { ALL_AGENCY_IDS } from "../lib/agencies";
+import { useUrlState } from "../lib/useUrlState";
 
 export interface Filters {
   startDate: string;       // YYYY-MM-DD
@@ -24,21 +25,26 @@ function isoDate(offsetDays = 0): string {
 }
 
 export const FilterProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [startDate, setStartDate] = useState<string>(() => isoDate(-7));
-  const [endDate,   setEndDate]   = useState<string>(() => isoDate(0));
-  const [agencies,  setAgenciesState] = useState<string[]>(() => [...ALL_AGENCY_IDS]);
-  const [search,    setSearchState]   = useState<string>("");
+  const { state, setState } = useUrlState();
+
+  const startDate = state.from ?? isoDate(-7);
+  const endDate   = state.to   ?? isoDate(0);
+  const agencies  = state.agencies ?? [...ALL_AGENCY_IDS];
+  const search    = state.q ?? "";
 
   const setDateRange = useCallback((s: string, e: string) => {
-    setStartDate(s);
-    setEndDate(e);
-  }, []);
+    setState({ ...state, from: s, to: e });
+  }, [state, setState]);
 
   const setAgencies = useCallback((ids: string[]) => {
-    setAgenciesState(ids.length > 0 ? ids : [...ALL_AGENCY_IDS]);
-  }, []);
+    // Treat "all selected" or "none selected" as the default — elide from URL.
+    const isAll = ids.length === 0 || ids.length === ALL_AGENCY_IDS.length;
+    setState({ ...state, agencies: isAll ? null : ids });
+  }, [state, setState]);
 
-  const setSearch = useCallback((q: string) => setSearchState(q), []);
+  const setSearch = useCallback((q: string) => {
+    setState({ ...state, q: q || null });
+  }, [state, setState]);
 
   const value = useMemo<FilterApi>(
     () => ({ filters: { startDate, endDate, agencies, search }, setDateRange, setAgencies, setSearch }),

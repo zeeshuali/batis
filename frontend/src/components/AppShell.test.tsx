@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FilterProvider } from "../context/FilterContext";
@@ -52,6 +52,8 @@ function wrap(ui: React.ReactElement) {
 }
 
 describe("AppShell", () => {
+  beforeEach(() => { window.location.hash = ""; });
+
   it("renders brand, all five tabs, and filter bar", () => {
     render(wrap(<AppShell />));
     expect(screen.getByText("BATIS")).toBeInTheDocument();
@@ -94,6 +96,14 @@ describe("AppShell", () => {
     render(wrap(<AppShell />));
     await userEvent.click(screen.getByRole("tab", { name: "Equity & Safety" }));
     expect(window.location.hash).toBe("#equity");
+  });
+
+  it("encodes search into the hash when typed", async () => {
+    window.location.hash = "";
+    render(wrap(<AppShell />));
+    const input = screen.getByPlaceholderText(/route/i);
+    await userEvent.type(input, "51");
+    expect(window.location.hash).toContain("q=51");
   });
 
   it("renders a theme toggle that flips data-theme on <html>", async () => {

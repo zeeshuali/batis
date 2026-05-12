@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { describe, it, expect, beforeEach } from "vitest";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FilterProvider, useFilters } from "./FilterContext";
 
@@ -19,6 +19,8 @@ function Probe() {
 }
 
 describe("FilterContext", () => {
+  beforeEach(() => { window.location.hash = ""; });
+
   it("provides defaults: last 7 days, all agencies, empty search", () => {
     render(<FilterProvider><Probe /></FilterProvider>);
     expect(screen.getByTestId("agencies").textContent).not.toBe("");

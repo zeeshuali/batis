@@ -8,10 +8,10 @@ import { Network } from "../sections/Network";
 import { EquitySafety } from "../sections/EquitySafety";
 import { BenchmarksDrift } from "../sections/BenchmarksDrift";
 import { useTheme } from "../context/ThemeContext";
-import { useSectionRoute, type SectionKey } from "../lib/useSectionRoute";
+import { useUrlState, type SectionKey } from "../lib/useUrlState";
 import "../design/shell.css";
 
-export type { SectionKey } from "../lib/useSectionRoute";
+export type { SectionKey } from "../lib/useUrlState";
 
 const TABS: { key: SectionKey; label: string }[] = [
   { key: "overview",   label: "Overview"          },
@@ -22,7 +22,9 @@ const TABS: { key: SectionKey; label: string }[] = [
 ];
 
 export const AppShell: React.FC = () => {
-  const { section: active, setSection: setActive } = useSectionRoute();
+  const { state, setState } = useUrlState();
+  const active = state.section;
+  const setActive = (key: SectionKey) => setState({ ...state, section: key });
   const { theme, toggle } = useTheme();
 
   return (
