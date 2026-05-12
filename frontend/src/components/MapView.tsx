@@ -594,7 +594,10 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true }) =>
         "circle-color":   "transparent",
         "circle-radius":  8,
         "circle-stroke-width": 1.5,
-        "circle-stroke-color": ["to-color", DELAY_COLOR],
+        // circle-stroke-color accepts an interpolate expression directly;
+        // wrapping in ["to-color", ...] fails style validation because
+        // to-color expects a single color value, not an expression.
+        "circle-stroke-color": DELAY_COLOR,
         "circle-stroke-opacity": 0.5,
       },
     });
@@ -616,7 +619,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true }) =>
         "circle-color":  "transparent",
         "circle-radius":  8,
         "circle-stroke-width": 1.5,
-        "circle-stroke-color": ["to-color", SAFETY_COLOR],
+        "circle-stroke-color": SAFETY_COLOR,
         "circle-stroke-opacity": 0.5,
       },
     });
