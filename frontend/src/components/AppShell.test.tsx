@@ -6,6 +6,29 @@ import { FilterProvider } from "../context/FilterContext";
 import { SelectionProvider } from "../context/SelectionContext";
 import { AppShell } from "./AppShell";
 
+// jsdom has no WebGL — section maps would crash when a section that embeds
+// SectionMap (e.g. Operations) mounts during tab-switch tests. Stub mapbox-gl
+// the same way the section tests do.
+vi.mock("mapbox-gl", () => ({
+  default: {
+    accessToken: "",
+    Map: vi.fn().mockImplementation(() => ({
+      on: vi.fn(), off: vi.fn(), addControl: vi.fn(), remove: vi.fn(),
+      getStyle: vi.fn(() => ({ layers: [] })),
+      isStyleLoaded: vi.fn(() => false), setStyle: vi.fn(),
+      getSource: vi.fn(), getLayer: vi.fn(), getCanvas: vi.fn(() => ({ style: {} })),
+    })),
+    NavigationControl: vi.fn(),
+    ScaleControl: vi.fn(),
+    Popup: vi.fn().mockImplementation(() => ({
+      setLngLat: function() { return this; },
+      setHTML: function() { return this; },
+      addTo: function() { return this; },
+      remove: function() { return this; },
+    })),
+  },
+}));
+
 // Mock the API the Overview section calls — AppShell renders Overview by default.
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
