@@ -5,11 +5,15 @@ services:
       POSTGRES_DB: bay_area_transit_intel
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-batis_dev}
+    # Host-side 5434 to avoid colliding with other postgres containers on 5432
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/sql/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    # Schema is applied manually via the bootstrap script (see Makefile / README)
+    # because schema.sql contains CREATE EXTENSION vector, which the stock
+    # postgis image does not bundle; the application code is tolerant of the
+    # missing extension.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -36,21 +40,26 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    # Host-side 8001 to avoid colliding with other API containers on 8000
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-batis_dev}@postgres:5432/bay_area_transit_intel
       FIVE11_API_KEY: ${FIVE11_API_KEY:-}
       ACTRANSIT_API_KEY: ${ACTRANSIT_API_KEY:-}
       BACKEND_API_KEY: ${BACKEND_API_KEY:-}
       GTFS_STATIC_URL: ${GTFS_STATIC_URL:-https://opendata.actransit.org/transitdata/google_transit.zip}
+      GTFS_RT_VEHICLE_POSITIONS_URL: ${GTFS_RT_VEHICLE_POSITIONS_URL:-}
+      GTFS_RT_TRIP_UPDATES_URL: ${GTFS_RT_TRIP_UPDATES_URL:-}
       OLLAMA_URL: http://host.docker.internal:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
       EMBED_MODEL_NAME: ${EMBED_MODEL_NAME:-all-MiniLM-L6-v2}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
     depends_on:
       postgres:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./backend:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -62,8 +71,10 @@ services:
     ports:
       - "5173:5173"
     environment:
-      VITE_MAPBOX_TOKEN: ${VITE_MAPBOX_TOKEN:-}
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+      # Frontend reads VITE_MAPBOX_ACCESS_TOKEN (not VITE_MAPBOX_TOKEN)
+      VITE_MAPBOX_ACCESS_TOKEN: ${VITE_MAPBOX_ACCESS_TOKEN:-}
+      # Browser hits backend directly via host port; CORS allows it
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8001}
       VITE_API_KEY: ${VITE_API_KEY:-}
     volumes:
       - ./frontend/src:/app/src
