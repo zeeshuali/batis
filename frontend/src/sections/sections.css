@@ -1,0 +1,72 @@
+@import "../design/tokens.css";
+
+.section {
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.section__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.section__title {
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--color-fg-0);
+  margin: 0;
+}
+
+.section__subtitle {
+  font-size: var(--text-sm);
+  color: var(--color-fg-2);
+}
+
+.section__kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+}
+
+.section__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.section__panel {
+  background: var(--color-bg-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-3);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 280px;
+}
+
+.section__panel-title {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-fg-1);
+  margin: 0;
+}
+
+.section-stub {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--space-8);
+  background: var(--color-bg-1);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-3);
+  color: var(--color-fg-2);
+}
