@@ -3,16 +3,20 @@ import { useFilters } from "../context/FilterContext";
 import { useSelection } from "../context/SelectionContext";
 import { useAgencies } from "../context/AgenciesContext";
 import { api } from "../lib/api";
-import { KpiCard, DataList, TrendChart, Spinner, EmptyState, SectionError, type DataListItem, type TrendPoint } from "../components/primitives";
+import { KpiCard, DataList, TrendChart, Spinner, EmptyState, SectionError, ExportButton, type DataListItem, type TrendPoint } from "../components/primitives";
 import { SectionMap } from "../components/SectionMap";
 import { ReliabilityRow, TrendRow, SafetyRow } from "../types/data";
 import { fmtMin, fmtPct } from "../lib/format";
+import { useAgencyRollups } from "../lib/useAgencyRollups";
+import { useUrlState } from "../lib/useUrlState";
 import "./sections.css";
 
 export const Overview: React.FC = () => {
   const { filters } = useFilters();
   const { selection, setRouteId } = useSelection();
   const { agencies } = useAgencies();
+  const { state, setState } = useUrlState();
+  const { rows: rollups, loading: rollupsLoading } = useAgencyRollups(filters.startDate, filters.endDate);
 
   const [reliabilityRows, setReliabilityRows] = useState<ReliabilityRow[]>([]);
   const [trendRows, setTrendRows] = useState<TrendRow[]>([]);
@@ -114,6 +118,36 @@ export const Overview: React.FC = () => {
           <EmptyState message="No trend data in this window." />
         ) : (
           <TrendChart data={trendPoints} yLabel="sec" />
+        )}
+      </div>
+
+      <div className="section__panel">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h3 className="section__panel-title">By agency</h3>
+          <ExportButton
+            filename="agencies-rollup.csv"
+            rows={rollups.map(r => ({
+              agency_id:     r.agency_id,
+              agency_name:   r.agency_name ?? r.agency_id,
+              routes_count:  r.routes_count ?? 0,
+              alerts_active: r.alerts_active ?? 0,
+              otp_7d:        r.otp_7d ?? null,
+              avg_delay_7d:  r.avg_delay_7d ?? null,
+            }))}
+          />
+        </div>
+        {rollupsLoading && rollups.length === 0 ? <Spinner /> : rollups.length === 0 ? (
+          <EmptyState message="No agency rollups available." hint="The agencies catalog may not be populated yet." />
+        ) : (
+          <DataList
+            items={rollups.map(r => ({
+              id:        r.agency_id,
+              primary:   r.agency_name ?? r.agency_id,
+              secondary: `${r.routes_count ?? 0} routes · ${r.alerts_active ?? 0} alerts`,
+              trailing:  fmtPct(r.otp_7d),
+            }))}
+            onSelect={(id) => setState({ ...state, section: "agency", agency_id: id })}
+          />
         )}
       </div>
     </div>
