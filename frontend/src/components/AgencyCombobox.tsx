@@ -4,7 +4,24 @@ import { useFilters } from "../context/FilterContext";
 import { agencyColor, type AgencyMeta } from "../lib/agencies";
 import "./AgencyCombobox.css";
 
-const MAX_CHIPS = 3;
+const MAX_CHIPS = 6;
+
+/** Canonical order across all modes the 511.org operators feed produces.
+ *  Anything not in this list lands in MODE_FALLBACK. */
+const MODE_ORDER: ReadonlyArray<string> = ["bus", "rail", "ferry", "multi", "other"];
+const MODE_LABELS: Record<string, string> = {
+  bus:   "Bus",
+  rail:  "Rail",
+  ferry: "Ferry",
+  multi: "Multi-modal",
+  other: "Other",
+};
+const MODE_FALLBACK = "other";
+
+function modeOf(a: AgencyMeta): string {
+  const t = (a.agency_type ?? "").toLowerCase();
+  return MODE_ORDER.includes(t) ? t : MODE_FALLBACK;
+}
 
 function renderRow(
   a: AgencyMeta,
@@ -52,32 +69,61 @@ export const AgencyCombobox: React.FC = () => {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
-  const selected = filters.agencies;          // [] = "all"
+  const selected    = filters.agencies;          // [] = "all"
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
-  const { monitoredRows, otherRows } = useMemo(() => {
+  const groups = useMemo(() => {
     const term = search.trim().toLowerCase();
     const filtered = agencies
       .filter(a => showInactive || a.has_data !== false)
       .filter(a => !term
         || a.agency_id.toLowerCase().includes(term)
         || a.agency_name.toLowerCase().includes(term));
-    const monitored = filtered
-      .filter(a => a.monitored)
-      .sort((x, y) => x.agency_name.localeCompare(y.agency_name));
-    const others = filtered
-      .filter(a => !a.monitored)
-      .sort((x, y) => x.agency_name.localeCompare(y.agency_name));
-    return { monitoredRows: monitored, otherRows: others };
+
+    const byMode = new Map<string, AgencyMeta[]>();
+    for (const a of filtered) {
+      const m = modeOf(a);
+      const bucket = byMode.get(m) ?? [];
+      bucket.push(a);
+      byMode.set(m, bucket);
+    }
+    // Within each mode: monitored first, then alpha by name.
+    for (const list of byMode.values()) {
+      list.sort((x, y) => {
+        const mx = x.monitored ? 0 : 1;
+        const my = y.monitored ? 0 : 1;
+        if (mx !== my) return mx - my;
+        return x.agency_name.localeCompare(y.agency_name);
+      });
+    }
+    return MODE_ORDER
+      .map(mode => ({ mode, rows: byMode.get(mode) ?? [] }))
+      .filter(g => g.rows.length > 0);
   }, [agencies, search, showInactive]);
-  const totalVisible = monitoredRows.length + otherRows.length;
+  const totalVisible = groups.reduce((s, g) => s + g.rows.length, 0);
 
   const toggle = useCallback((id: string) => {
     setAgencies(selectedSet.has(id) ? selected.filter(s => s !== id) : [...selected, id]);
   }, [selected, selectedSet, setAgencies]);
 
-  const removeChip = (id: string) => setAgencies(selected.filter(s => s !== id));
-  const clearAll      = () => setAgencies([]);
+  /** Toggle every agency in a mode group on or off.  If all are already
+   *  selected, deselect them; otherwise add the missing ones.  The
+   *  resulting agency_id array flows through FilterContext, which
+   *  drives every section's per-agency endpoint filter. */
+  const toggleGroup = (rows: AgencyMeta[]) => {
+    const ids = rows.map(r => r.agency_id);
+    const allOn = ids.every(id => selectedSet.has(id));
+    if (allOn) {
+      setAgencies(selected.filter(s => !ids.includes(s)));
+    } else {
+      const next = new Set(selected);
+      for (const id of ids) next.add(id);
+      setAgencies([...next]);
+    }
+  };
+
+  const removeChip      = (id: string) => setAgencies(selected.filter(s => s !== id));
+  const clearAll        = () => setAgencies([]);
   const selectMonitored = () => setAgencies(
     agencies.filter(a => a.monitored && a.has_data !== false).map(a => a.agency_id),
   );
@@ -136,20 +182,35 @@ export const AgencyCombobox: React.FC = () => {
             {!loading && totalVisible === 0 && (
               <li className="agency-combobox__empty">No matches.</li>
             )}
-            {monitoredRows.length > 0 && (
-              <li className="agency-combobox__group-header" aria-hidden="true">
-                <span>Monitored (RT)</span>
-                <span className="agency-combobox__group-count">{monitoredRows.length}</span>
-              </li>
-            )}
-            {monitoredRows.map(a => renderRow(a, selectedSet.has(a.agency_id), toggle))}
-            {otherRows.length > 0 && (
-              <li className="agency-combobox__group-header" aria-hidden="true">
-                <span>Other</span>
-                <span className="agency-combobox__group-count">{otherRows.length}</span>
-              </li>
-            )}
-            {otherRows.map(a => renderRow(a, selectedSet.has(a.agency_id), toggle))}
+            {groups.map(({ mode, rows }) => {
+              const ids = rows.map(r => r.agency_id);
+              const allOn = ids.every(id => selectedSet.has(id));
+              const anyOn = ids.some(id => selectedSet.has(id));
+              return (
+                <React.Fragment key={mode}>
+                  <li className="agency-combobox__group-header">
+                    <button
+                      type="button"
+                      className="agency-combobox__group-toggle"
+                      aria-pressed={allOn}
+                      onClick={() => toggleGroup(rows)}
+                      aria-label={allOn ? `Deselect all ${MODE_LABELS[mode]}` : `Select all ${MODE_LABELS[mode]}`}
+                    >
+                      <span
+                        className={`agency-combobox__group-checkbox ${
+                          allOn ? "agency-combobox__group-checkbox--on"
+                          : anyOn ? "agency-combobox__group-checkbox--some" : ""
+                        }`}
+                        aria-hidden="true"
+                      />
+                      <span>{MODE_LABELS[mode]}</span>
+                    </button>
+                    <span className="agency-combobox__group-count">{rows.length}</span>
+                  </li>
+                  {rows.map(a => renderRow(a, selectedSet.has(a.agency_id), toggle))}
+                </React.Fragment>
+              );
+            })}
           </ul>
 
           <div className="agency-combobox__footer">
@@ -165,7 +226,7 @@ export const AgencyCombobox: React.FC = () => {
                 checked={showInactive}
                 onChange={(e) => setShowInactive(e.target.checked)}
               />
-              <span>Show 511 internal &amp; inactive</span>
+              <span>Show all agencies</span>
             </label>
           </div>
         </div>

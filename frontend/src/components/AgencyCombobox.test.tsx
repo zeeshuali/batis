@@ -1,6 +1,6 @@
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AgenciesProvider } from "../context/AgenciesContext";
 import { FilterProvider, useFilters } from "../context/FilterContext";
@@ -14,11 +14,12 @@ vi.mock("../lib/api", async () => {
       get: vi.fn(async (url: string) => {
         if (url === "/agencies") {
           return { data: [
-            { agency_id: "AC", agency_name: "AC Transit",       monitored: true,  has_data: true  },
-            { agency_id: "BA", agency_name: "BART",             monitored: true,  has_data: true  },
-            { agency_id: "CT", agency_name: "Caltrain",         monitored: true,  has_data: true  },
-            { agency_id: "5E", agency_name: "511 Emergency",    monitored: false, has_data: false },
-            { agency_id: "XX", agency_name: "Empty Operator",   monitored: false, has_data: false },
+            { agency_id: "AC", agency_name: "AC Transit",       agency_type: "bus",   monitored: true,  has_data: true  },
+            { agency_id: "SM", agency_name: "SamTrans",         agency_type: "bus",   monitored: true,  has_data: true  },
+            { agency_id: "CT", agency_name: "Caltrain",         agency_type: "rail",  monitored: true,  has_data: true  },
+            { agency_id: "BA", agency_name: "BART",             agency_type: "multi", monitored: true,  has_data: true  },
+            { agency_id: "5E", agency_name: "511 Emergency",    agency_type: "other", monitored: false, has_data: false },
+            { agency_id: "XX", agency_name: "Empty Operator",   agency_type: "bus",   monitored: false, has_data: false },
           ] };
         }
         return { data: [] };
@@ -37,47 +38,58 @@ function wrap(ui: React.ReactElement) {
 }
 
 describe("AgencyCombobox", () => {
+  beforeEach(() => { window.location.hash = ""; });
+
   it("trigger shows 'All agencies' when nothing is selected", async () => {
     render(wrap(<AgencyCombobox />));
-    await waitFor(() => expect(screen.getByText("All agencies")).toBeInTheDocument());
+    expect(await screen.findByText("All agencies")).toBeInTheDocument();
   });
 
-  it("groups monitored agencies above 'Other' with section headers", async () => {
+  it("groups agencies by mode (Bus, Rail, Multi-modal) in canonical order", async () => {
     render(wrap(<AgencyCombobox />));
     await userEvent.click(screen.getByRole("button", { name: /Agencies/i }));
-    // Default view: AC/BA/CT are monitored, no 'other' has_data row.
-    expect(await screen.findByText(/Monitored \(RT\)/i)).toBeInTheDocument();
-    // Reveal inactive — now '511 Emergency' + 'Empty Operator' show up as 'Other'.
-    await userEvent.click(screen.getByLabelText(/Show 511 internal/i));
-    expect(await screen.findByText(/^Other$/)).toBeInTheDocument();
-    // Confirm DOM order: the Monitored header precedes the Other header.
-    const headers = screen.getAllByText(/Monitored \(RT\)|^Other$/);
-    expect(headers[0].textContent).toMatch(/Monitored/);
-    expect(headers[1].textContent).toMatch(/Other/);
-    // And AC Transit's row precedes 511 Emergency's row.
-    const acRow = screen.getByText("AC Transit");
-    const emRow = screen.getByText("511 Emergency");
-    expect(acRow.compareDocumentPosition(emRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Useful agencies span 3 modes — 'Other' suppressed because Bus/Rail/Multi cover them.
+    expect(await screen.findByRole("button", { name: /Select all Bus/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Select all Rail/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Select all Multi-modal/i })).toBeInTheDocument();
+    // Mode order is Bus → Rail → Multi-modal.  Confirm via DOM position.
+    const bus  = screen.getByRole("button", { name: /Select all Bus/i });
+    const rail = screen.getByRole("button", { name: /Select all Rail/i });
+    const mult = screen.getByRole("button", { name: /Select all Multi-modal/i });
+    expect(bus.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(rail.compareDocumentPosition(mult) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("hides has_data=false agencies by default and reveals them via the toggle", async () => {
+  it("clicking a mode header selects every agency in that mode", async () => {
+    render(wrap(<><AgencyCombobox /><Selected /></>));
+    await userEvent.click(screen.getByRole("button", { name: /Agencies/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Select all Bus/i }));
+    // Useful Bus agencies: AC + SM.
+    expect(screen.getByTestId("selected").textContent).toBe("AC,SM");
+  });
+
+  it("clicking a mode header again deselects every agency in that mode", async () => {
+    render(wrap(<><AgencyCombobox /><Selected /></>));
+    await userEvent.click(screen.getByRole("button", { name: /Agencies/i }));
+    const busBtn = await screen.findByRole("button", { name: /Select all Bus/i });
+    await userEvent.click(busBtn);
+    expect(screen.getByTestId("selected").textContent).toBe("AC,SM");
+    // Title swaps once everything in the group is on.
+    const deselectBtn = await screen.findByRole("button", { name: /Deselect all Bus/i });
+    await userEvent.click(deselectBtn);
+    expect(screen.getByTestId("selected").textContent).toBe("");
+  });
+
+  it("'Show all agencies' toggle reveals has_data=false rows", async () => {
     render(wrap(<AgencyCombobox />));
     await userEvent.click(screen.getByRole("button", { name: /Agencies/i }));
-    // Useful agencies are visible.
-    expect(await screen.findByText("AC Transit")).toBeInTheDocument();
-    expect(screen.getByText("BART")).toBeInTheDocument();
-    expect(screen.getByText("Caltrain")).toBeInTheDocument();
-    // Noise agencies are hidden.
     expect(screen.queryByText("511 Emergency")).not.toBeInTheDocument();
-    expect(screen.queryByText("Empty Operator")).not.toBeInTheDocument();
-
-    // Flip the toggle.
-    await userEvent.click(screen.getByLabelText(/Show 511 internal/i));
+    await userEvent.click(screen.getByLabelText(/Show all agencies/i));
     expect(await screen.findByText("511 Emergency")).toBeInTheDocument();
     expect(screen.getByText("Empty Operator")).toBeInTheDocument();
   });
 
-  it("typing narrows the list", async () => {
+  it("typing narrows the list within its mode group", async () => {
     render(wrap(<AgencyCombobox />));
     await userEvent.click(screen.getByRole("button", { name: /Agencies/i }));
     const search = await screen.findByPlaceholderText(/Search agencies/i);
@@ -85,34 +97,32 @@ describe("AgencyCombobox", () => {
     expect(screen.getByText("BART")).toBeInTheDocument();
     expect(screen.queryByText("AC Transit")).not.toBeInTheDocument();
     expect(screen.queryByText("Caltrain")).not.toBeInTheDocument();
+    // The empty Bus and Rail groups are suppressed; only Multi-modal remains.
+    expect(screen.queryByRole("button", { name: /Select all Bus/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Select all Multi-modal/i })).toBeInTheDocument();
   });
 
-  it("checkboxes drive FilterContext.agencies; chip ✕ removes one", async () => {
+  it("chip ✕ removes one agency from the selection", async () => {
     render(wrap(<><AgencyCombobox /><Selected /></>));
     await userEvent.click(screen.getByRole("button", { name: /Agencies/i }));
-    const acRow = (await screen.findByText("AC Transit")).closest("label")!;
-    const baRow = (await screen.findByText("BART")).closest("label")!;
-    await userEvent.click(acRow.querySelector('input[type="checkbox"]')!);
-    await userEvent.click(baRow.querySelector('input[type="checkbox"]')!);
-    expect(screen.getByTestId("selected").textContent).toBe("AC,BA");
-    // Remove BA via chip ✕.
-    await userEvent.click(screen.getByLabelText(/Remove BA/i));
-    expect(screen.getByTestId("selected").textContent).toBe("AC");
+    await userEvent.click(await screen.findByRole("button", { name: /Select all Bus/i }));
+    expect(screen.getByTestId("selected").textContent).toBe("AC,SM");
+    await userEvent.click(screen.getByLabelText(/Remove AC/i));
+    expect(screen.getByTestId("selected").textContent).toBe("SM");
   });
 
-  it("'Monitored only' selects RT-enabled agencies with has_data", async () => {
+  it("'Monitored only' selects RT agencies regardless of mode", async () => {
     render(wrap(<><AgencyCombobox /><Selected /></>));
     await userEvent.click(screen.getByRole("button", { name: /Agencies/i }));
     await userEvent.click(await screen.findByRole("button", { name: /Monitored only/i }));
-    // Order is insertion order — AC, BA, CT all qualify.
-    expect(screen.getByTestId("selected").textContent).toBe("AC,BA,CT");
+    // AC + SM (bus) + CT (rail) + BA (multi) — all monitored & useful.
+    expect(screen.getByTestId("selected").textContent).toBe("AC,SM,CT,BA");
   });
 
   it("'Clear' resets to the empty (= all) selection", async () => {
     render(wrap(<><AgencyCombobox /><Selected /></>));
     await userEvent.click(screen.getByRole("button", { name: /Agencies/i }));
     await userEvent.click(await screen.findByRole("button", { name: /Monitored only/i }));
-    expect(screen.getByTestId("selected").textContent).toBe("AC,BA,CT");
     await userEvent.click(screen.getByRole("button", { name: /^Clear$/i }));
     expect(screen.getByTestId("selected").textContent).toBe("");
   });
