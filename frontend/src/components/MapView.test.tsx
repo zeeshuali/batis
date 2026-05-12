@@ -57,4 +57,15 @@ describe("MapView", () => {
       unmount();
     }
   });
+
+  it("accepts an agencyFilter prop without crashing", () => {
+    // The map mock's style.load callback is never fired (isStyleLoaded
+    // returns false in this test), so we can't introspect setFilter calls
+    // here — but the prop should at least flow through and the component
+    // should mount cleanly under each combination.
+    const { unmount } = render(wrap(<MapView mapMode="reliability" agencyFilter="AC" />));
+    unmount();
+    const { unmount: u2 } = render(wrap(<MapView mapMode="reliability" agencyFilter={null} />));
+    u2();
+  });
 });
