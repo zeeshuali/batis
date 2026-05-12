@@ -4,6 +4,7 @@ import { useSelection } from "../context/SelectionContext";
 import { api } from "../lib/api";
 import { KpiCard, DataList, Spinner, EmptyState, SectionError, type DataListItem } from "../components/primitives";
 import { SectionMap } from "../components/SectionMap";
+import { PlannerPanel } from "../components/PlannerPanel";
 import { agencyName } from "../lib/agencies";
 import { RouteRow } from "../types/data";
 import "./sections.css";
@@ -18,6 +19,7 @@ export const Network: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  const [plannerMode, setPlannerMode] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,6 +61,13 @@ export const Network: React.FC = () => {
       <div className="section__header">
         <h2 className="section__title">Network</h2>
         <span className="section__subtitle">Routes · coverage · service deserts</span>
+        <button
+          type="button"
+          className="export-button"
+          onClick={() => setPlannerMode(p => !p)}
+        >
+          {plannerMode ? "← Back to coverage" : "Plan a trip"}
+        </button>
       </div>
 
       {error && (
@@ -76,13 +85,19 @@ export const Network: React.FC = () => {
       </div>
 
       <div className="section__grid">
-        <SectionMap mapMode="coverage" title="Coverage hex grid" height={460} />
-        <div className="section__panel">
-          <h3 className="section__panel-title">Routes</h3>
-          {loading && filtered.length === 0 ? <Spinner /> :
-           filtered.length === 0 ? <EmptyState message="No routes match the current filters." /> :
-           <DataList items={filtered} selectedId={selection.routeId} onSelect={setRouteId} />}
-        </div>
+        <SectionMap
+          mapMode={plannerMode ? "planner" : "coverage"}
+          title={plannerMode ? "Trip planner" : "Coverage hex grid"}
+          height={460}
+        />
+        {plannerMode ? <PlannerPanel /> : (
+          <div className="section__panel">
+            <h3 className="section__panel-title">Routes</h3>
+            {loading && filtered.length === 0 ? <Spinner /> :
+             filtered.length === 0 ? <EmptyState message="No routes match the current filters." /> :
+             <DataList items={filtered} selectedId={selection.routeId} onSelect={setRouteId} />}
+          </div>
+        )}
       </div>
     </div>
   );

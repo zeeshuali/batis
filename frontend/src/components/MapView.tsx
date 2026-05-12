@@ -361,7 +361,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true }) =>
   // Read filter + selection from contexts. Local aliases below keep the
   // rest of the ~1,100-line component compiling unchanged.
   const { filters } = useFilters();
-  const { selection, setStopId } = useSelection();
+  const { selection, setStopId, setPlannerOrigin, setPlannerDest, resetPlanner } = useSelection();
 
   const startDate = filters.startDate;
   const endDate = filters.endDate;
@@ -370,11 +370,18 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true }) =>
   const selectedRouteId = selection.routeId;
   const activeSection = mapMode;
   const onStopClick = setStopId;
-  // Trip planner is out of scope for Plan 1b (see plan §11). Stub to no-op
-  // so the existing planner-related effects don't crash.
-  const plannerOrigin = null as LatLng | null;
-  const plannerDest = null as LatLng | null;
-  const onPlannerMapClick = (_lat: number, _lng: number) => {};
+  const plannerOrigin: LatLng | null = selection.plannerOrigin;
+  const plannerDest: LatLng | null = selection.plannerDest;
+  const onPlannerMapClick = (lat: number, lng: number) => {
+    if (!selection.plannerOrigin) {
+      setPlannerOrigin({ lat, lng });
+    } else if (!selection.plannerDest) {
+      setPlannerDest({ lat, lng });
+    } else {
+      resetPlanner();
+      setPlannerOrigin({ lat, lng });
+    }
+  };
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef         = useRef<mapboxgl.Map | null>(null);
