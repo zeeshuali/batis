@@ -1,40 +1,62 @@
 """
 Populate coverage_cells equity columns from US Census ACS 5-year estimates.
 
-Uses the Census Bureau Data API (free, no key required for basic use).
-ACS 5-year, Table B19013 (median household income), B08141 (no vehicle households),
-B17001 (poverty status).
+Covers all 9 Bay Area counties. Spatial assignment uses approximate county
+bounding-box polygons (ST_MakeEnvelope) so no TIGER geometry download is needed.
+Cells outside all county boxes receive a neutral equity_score of 0.5.
 """
 from __future__ import annotations
 
-import warnings
 from typing import Optional
 
+import certifi
 import requests
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from app.db import get_engine
 
-# Census FIPS: California=06, Alameda County=001, Contra Costa=013
 _CENSUS_API = "https://api.census.gov/data/2022/acs/acs5"
-_COUNTIES = ["06001", "06013"]  # Alameda, Contra Costa
+
+# (fips, display_name, min_lon, min_lat, max_lon, max_lat)
+#
+# Bounding boxes are trimmed at shared county boundaries to prevent overlap:
+#   Alameda/Contra Costa split at lat 37.88 (East Bay Hills ridge)
+#   SF west boundary is -122.52; Alameda extends to -122.36 (slightly wider) to capture
+#   the West Oakland shoreline cells that lie east of SF
+_COUNTIES = [
+    ("06001", "Alameda",       -122.36, 37.45, -121.47, 37.88),  # Oakland→Fremont, south of Hills
+    ("06013", "Contra Costa",  -122.38, 37.88, -121.55, 38.07),  # Richmond→Concord, north of Hills
+    ("06075", "San Francisco", -122.52, 37.70, -122.35, 37.83),
+    ("06081", "San Mateo",     -122.52, 37.11, -122.06, 37.71),
+    ("06085", "Santa Clara",   -122.20, 36.89, -121.21, 37.48),
+    ("06097", "Sonoma",        -123.53, 38.08, -122.35, 38.85),
+    ("06055", "Napa",          -122.62, 38.10, -122.04, 38.86),
+    ("06095", "Solano",        -122.39, 37.97, -121.54, 38.54),
+    ("06041", "Marin",         -123.03, 37.85, -122.35, 38.20),
+]
+
+# ACS variables:
+#   B17001_001E = total pop in poverty universe
+#   B17001_002E = pop below poverty level
+#   B08141_001E = total HH in vehicle-availability universe
+#   B08141_002E = no-vehicle HHs
+#   B01001_001E = total population
+_VARIABLES = ["B17001_001E", "B17001_002E", "B08141_001E", "B08141_002E", "B01001_001E"]
 
 
-def _fetch_census(variables: list[str], county_fips: str) -> list[dict]:
-    state = county_fips[:2]
+def _fetch_census(county_fips: str) -> list[dict]:
+    state  = county_fips[:2]
     county = county_fips[2:]
     params = {
-        "get": ",".join(["NAME"] + variables),
+        "get": ",".join(["NAME"] + _VARIABLES),
         "for": "tract:*",
-        "in": f"state:{state} county:{county}",
+        "in":  f"state:{state} county:{county}",
     }
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            resp = requests.get(_CENSUS_API, params=params, timeout=30, verify=False)
-            resp.raise_for_status()
-            data = resp.json()
+        resp = requests.get(_CENSUS_API, params=params, timeout=30, verify=certifi.where())
+        resp.raise_for_status()
+        data = resp.json()
     except Exception as e:
         print(f"  [equity] Census fetch failed for {county_fips}: {e}")
         return []
@@ -44,88 +66,119 @@ def _fetch_census(variables: list[str], county_fips: str) -> list[dict]:
     return [dict(zip(headers, row)) for row in data[1:]]
 
 
+def _aggregate_county(tracts: list[dict]) -> dict:
+    """Sum Census tract rows to county-level metrics."""
+    total_pop = poverty_sum = total_hh = no_veh_sum = 0
+    for t in tracts:
+        try:
+            total_pop   += max(0, int(t.get("B17001_001E") or 0))
+            poverty_sum += max(0, int(t.get("B17001_002E") or 0))
+            total_hh    += max(0, int(t.get("B08141_001E") or 0))
+            no_veh_sum  += max(0, int(t.get("B08141_002E") or 0))
+        except (ValueError, TypeError):
+            continue
+
+    poverty_pct  = poverty_sum / total_pop if total_pop > 0 else 0.0
+    no_veh_pct   = no_veh_sum  / total_hh  if total_hh  > 0 else 0.0
+    equity_score = (poverty_pct + no_veh_pct) / 2.0
+
+    return {
+        "total_pop":    total_pop,
+        "poverty_pct":  poverty_pct,
+        "no_veh_pct":   no_veh_pct,
+        "equity_score": equity_score,
+    }
+
+
 def populate_equity_columns(conn: Optional[Connection] = None) -> None:
     """
-    Update coverage_cells with Census-derived equity metrics.
-    Uses spatial join: each cell gets the values of the census tract it overlaps most.
+    Update coverage_cells with per-county Census-derived equity metrics.
+    Each cell's centroid is matched to the first county bounding box that contains it.
+    Cells outside all county boxes default to equity_score=0.5.
     """
-    own_conn = False
     if conn is None:
-        engine = get_engine()
-        conn = engine.connect()
-        own_conn = True
+        with get_engine().begin() as _conn:
+            populate_equity_columns(_conn)
+        return
 
-    try:
-        # Fetch poverty rate (B17001_002E = below poverty, B17001_001E = total)
-        # and no-vehicle households (B08141_002E = no vehicle, B08141_001E = total)
-        all_tracts: list[dict] = []
-        for fips in _COUNTIES:
-            rows = _fetch_census(
-                ["B17001_001E", "B17001_002E", "B08141_001E", "B08141_002E"],
-                fips,
+    # ── Step 1: fetch and aggregate Census data per county ───────────────────
+    county_data: list[tuple] = []  # (fips, name, min_lon, min_lat, max_lon, max_lat, metrics)
+    for fips, name, min_lon, min_lat, max_lon, max_lat in _COUNTIES:
+        tracts  = _fetch_census(fips)
+        metrics = _aggregate_county(tracts)
+        county_data.append((fips, name, min_lon, min_lat, max_lon, max_lat, metrics))
+        if tracts:
+            m = metrics
+            print(
+                f"  [equity] {name}: pop={m['total_pop']:,} "
+                f"poverty={m['poverty_pct']:.1%} no_veh={m['no_veh_pct']:.1%} "
+                f"score={m['equity_score']:.3f}"
             )
-            all_tracts.extend(rows)
 
-        if not all_tracts:
-            print("  [equity] No Census data fetched.")
-            return
+    fetched = [cd for cd in county_data if cd[6]["total_pop"] > 0]
+    if not fetched:
+        print("  [equity] No Census data returned — setting default equity_score=0.5")
+        conn.execute(text("UPDATE coverage_cells SET equity_score = 0.5"))
+        return
 
-        # Build a temp table of tract-level metrics
-        # We'll use a spatial join to assign each coverage cell its tract's equity score
-        # For simplicity: use ST_Within or nearest centroid match
+    # ── Step 2: mark all cells unassigned (NULL = not yet claimed) ──────────
+    conn.execute(text("UPDATE coverage_cells SET equity_score = NULL"))
 
-        # Parse metrics
-        tract_metrics: list[dict] = []
-        for t in all_tracts:
-            try:
-                total_pop  = int(t.get("B17001_001E") or 0)
-                poverty    = int(t.get("B17001_002E") or 0)
-                total_hh   = int(t.get("B08141_001E") or 0)
-                no_vehicle = int(t.get("B08141_002E") or 0)
-                state_fips  = t.get("state", "")
-                county_fips = t.get("county", "")
-                tract_fips  = t.get("tract", "")
-                geoid = f"{state_fips}{county_fips}{tract_fips}"
+    # ── Step 3: per-county spatial update — smallest bbox first ─────────────
+    # Process smallest counties first. Each UPDATE only touches cells that are
+    # still NULL (unassigned), so a small county claiming its cells prevents
+    # a larger overlapping county bbox from overwriting them.
+    def _bbox_area(entry: tuple) -> float:
+        _, _, min_lon, min_lat, max_lon, max_lat, _ = entry
+        return abs(max_lon - min_lon) * abs(max_lat - min_lat)
 
-                poverty_pct  = poverty / total_pop   if total_pop  > 0 else 0.0
-                no_veh_pct   = no_vehicle / total_hh if total_hh   > 0 else 0.0
-                equity_score = (poverty_pct + no_veh_pct) / 2.0
+    for fips, name, min_lon, min_lat, max_lon, max_lat, m in sorted(county_data, key=_bbox_area):
+        if m["total_pop"] == 0:
+            continue
 
-                tract_metrics.append({
-                    "geoid": geoid,
-                    "low_income_pct": poverty_pct,
-                    "no_car_pct": no_veh_pct,
-                    "equity_score": equity_score,
-                })
-            except (ValueError, TypeError):
-                continue
+        # Count unassigned cells falling inside this county bbox
+        cnt_row = conn.execute(text("""
+            SELECT COUNT(*) FROM coverage_cells
+            WHERE equity_score IS NULL
+              AND ST_Within(
+                    ST_Centroid(geom),
+                    ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)
+                  )
+        """), {"min_lon": min_lon, "min_lat": min_lat,
+               "max_lon": max_lon, "max_lat": max_lat}).fetchone()
 
-        if not tract_metrics:
-            return
+        cell_count   = int(cnt_row[0]) if cnt_row else 0
+        per_cell_pop = int(m["total_pop"] / cell_count) if cell_count > 0 else 0
 
-        # Compute average equity score and update all coverage_cells
-        # (simplified: no spatial join available without tiger geometries — set global avg)
-        avg_equity = sum(m["equity_score"] for m in tract_metrics) / len(tract_metrics)
-        avg_low_income = sum(m["low_income_pct"] for m in tract_metrics) / len(tract_metrics)
-        avg_no_car = sum(m["no_car_pct"] for m in tract_metrics) / len(tract_metrics)
-
-        conn.execute(
-            text("""
+        conn.execute(text("""
             UPDATE coverage_cells SET
-                equity_score           = :equity_score,
-                low_income_population  = ROUND(population * :low_income_pct)::int,
-                no_car_households      = ROUND(population * :no_car_pct)::int
-            WHERE population > 0
-            """),
-            {
-                "equity_score": avg_equity,
-                "low_income_pct": avg_low_income,
-                "no_car_pct": avg_no_car,
-            },
-        )
-        print(f"  [equity] Updated coverage_cells: avg equity={avg_equity:.3f}, "
-              f"low_income={avg_low_income:.1%}, no_car={avg_no_car:.1%} "
-              f"({len(tract_metrics)} tracts)")
-    finally:
-        if own_conn and conn is not None:
-            conn.close()
+                equity_score          = :equity_score,
+                population            = :per_cell_pop,
+                low_income_population = ROUND(:per_cell_pop * :poverty_pct)::int,
+                no_car_households     = ROUND(:per_cell_pop * :no_veh_pct)::int
+            WHERE equity_score IS NULL
+              AND ST_Within(
+                    ST_Centroid(geom),
+                    ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)
+                  )
+        """), {
+            "equity_score":  m["equity_score"],
+            "per_cell_pop":  per_cell_pop,
+            "poverty_pct":   m["poverty_pct"],
+            "no_veh_pct":    m["no_veh_pct"],
+            "min_lon":       min_lon,
+            "min_lat":       min_lat,
+            "max_lon":       max_lon,
+            "max_lat":       max_lat,
+        })
+
+        print(f"  [equity] {name}: {cell_count} cells → equity_score={m['equity_score']:.3f}")
+
+    # ── Step 4: neutral default for any cells outside all county bboxes ──────
+    defaulted = conn.execute(text(
+        "UPDATE coverage_cells SET equity_score = 0.5 WHERE equity_score IS NULL"
+    )).rowcount
+    if defaulted:
+        print(f"  [equity] {defaulted} cells outside all county bboxes → default 0.5")
+
+    print(f"  [equity] Done. {len(fetched)}/9 counties populated.")
