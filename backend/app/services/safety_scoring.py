@@ -47,7 +47,8 @@ def compute_stop_safety_scores(
               LEFT JOIN safety_incidents_raw i
                 ON s.geom IS NOT NULL
                AND i.geom IS NOT NULL
-               AND ST_DWithin(s.geom, i.geom, :buffer_meters)
+               -- Cast to ::geography so :buffer_meters is treated as metres, not degrees
+               AND ST_DWithin(s.geom::geography, i.geom::geography, :buffer_meters)
               GROUP BY s.stop_id
             ),
             scored AS (
