@@ -44,6 +44,13 @@ vi.mock("../lib/api", async () => {
         if (url.startsWith("/bunching/summary")) {
           return { data: [{ route_id: "51B", bunched_events: 12 }] };
         }
+        if (url.startsWith("/crowding/predictions")) {
+          return { data: [
+            { route_id: "51B", trip_id: null, stop_id: null, service_date: "2026-05-12", time_bucket: "AM_PEAK", crowding_level: "high", model_version: "v1" },
+            { route_id: "51B", trip_id: null, stop_id: null, service_date: "2026-05-12", time_bucket: "AM_PEAK", crowding_level: "high", model_version: "v1" },
+            { route_id: "72",  trip_id: null, stop_id: null, service_date: "2026-05-12", time_bucket: "AM_PEAK", crowding_level: "medium", model_version: "v1" },
+          ] };
+        }
         return { data: [] };
       }),
     },
@@ -63,5 +70,10 @@ describe("Operations", () => {
     expect(screen.getByText(/Network OTP/i)).toBeInTheDocument();
     expect(screen.getByText(/Live vehicles/i)).toBeInTheDocument();
     expect(screen.getByText(/Bunched/i)).toBeInTheDocument();
+  });
+
+  it("renders a crowding chart panel", async () => {
+    render(wrap(<Operations />));
+    await waitFor(() => expect(screen.getByRole("heading", { name: /Top high-crowding routes/i })).toBeInTheDocument());
   });
 });

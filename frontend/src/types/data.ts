@@ -51,3 +51,13 @@ export interface RouteRow {
   route_short_name?: string;
   agency_id?: string;
 }
+
+export interface CrowdingRow {
+  route_id: string;
+  trip_id: string | null;
+  stop_id: string | null;
+  service_date: string;
+  time_bucket: string;
+  crowding_level: "low" | "medium" | "high" | "unknown";
+  model_version: string | null;
+}
