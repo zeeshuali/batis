@@ -17,7 +17,12 @@ vi.mock("../lib/api", async () => {
             { agency_id: "BA", on_time_pct: 94.2, avg_delay_seconds: 32, sample_events:  8000 },
           ] };
         }
-        if (url.startsWith("/traffic/events"))    return { data: { features: new Array(20).fill({}) } };
+        if (url.startsWith("/traffic/events")) {
+          return { data: { features: [
+            { properties: { event_id: "EVT-1", event_type: "incident",     severity: "major", description: "Crash on 580",  start_time: "2026-05-12T08:00:00Z" } },
+            { properties: { event_id: "EVT-2", event_type: "construction", severity: "minor", description: "Lane closure", start_time: "2026-05-12T09:00:00Z" } },
+          ] } };
+        }
         if (url.startsWith("/traffic/work-zones")) return { data: { features: new Array(350).fill({}) } };
         return { data: [] };
       }),
@@ -33,8 +38,13 @@ describe("BenchmarksDrift", () => {
   it("renders KPIs and the agency bar chart", async () => {
     render(wrap(<BenchmarksDrift />));
     await waitFor(() => expect(screen.getByText(/^Agencies$/)).toBeInTheDocument());
-    expect(screen.getByText(/Traffic events/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Traffic events$/)).toBeInTheDocument();
     expect(screen.getByText(/Work zones/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Cross-agency OTP/i })).toBeInTheDocument();
+  });
+
+  it("renders the active traffic events table", async () => {
+    render(wrap(<BenchmarksDrift />));
+    await waitFor(() => expect(screen.getByText(/Crash on 580/i)).toBeInTheDocument());
   });
 });
