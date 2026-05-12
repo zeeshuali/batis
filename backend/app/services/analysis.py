@@ -1020,23 +1020,91 @@ def get_bunching_summary(
     return [dict(r) for r in rows]
 
 
+# ── Agency catalog ─────────────────────────────────────────────────────────────
+
+def get_agencies_list(conn: Connection) -> List[Dict[str, Any]]:
+    """All rows from the agencies catalog populated by
+    five11_operators.run_operators_sync(). Powers GET /agencies.
+    """
+    rows = conn.execute(text("""
+        SELECT
+            agency_id,
+            agency_name,
+            agency_type,
+            monitored,
+            agency_url,
+            agency_phone
+        FROM agencies
+        ORDER BY agency_name
+    """)).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def get_agencies_rollup(
+    conn: Connection,
+    start_date: date,
+    end_date: date,
+) -> List[Dict[str, Any]]:
+    """One row per agency: routes_count, stops_count, otp_pct,
+    avg_delay_seconds, hot_stops, sample_events. Powers Overview's
+    "By agency" card.
+
+    alerts_active is a placeholder (0) — service alerts come from the
+    live 511.org feed and aren't queryable historically; the per-agency
+    detail view fetches them at request time.
+    """
+    rows = conn.execute(text("""
+        WITH route_counts AS (
+            SELECT agency_id, COUNT(*) AS routes_count
+            FROM gtfs_routes
+            GROUP BY agency_id
+        ),
+        stop_counts AS (
+            SELECT agency_id, COUNT(*) AS stops_count
+            FROM gtfs_stops
+            GROUP BY agency_id
+        ),
+        otp_stats AS (
+            SELECT
+                agency_id,
+                COUNT(*) AS sample_events,
+                AVG(delay_seconds)::double precision AS avg_delay_seconds,
+                100.0 * SUM(CASE WHEN on_time THEN 1 ELSE 0 END)::double precision
+                  / NULLIF(COUNT(*), 0) AS otp_pct
+            FROM stop_observations
+            WHERE service_date BETWEEN :start_date AND :end_date
+              AND observed_arrival IS NOT NULL
+            GROUP BY agency_id
+        ),
+        hot_stops AS (
+            SELECT s.agency_id, COUNT(*) AS hot_stops
+            FROM stop_safety_scores ss
+            JOIN gtfs_stops s ON s.stop_id = ss.stop_id
+            WHERE ss.safety_score >= 8
+            GROUP BY s.agency_id
+        )
+        SELECT
+            a.agency_id,
+            a.agency_name,
+            a.monitored,
+            COALESCE(rc.routes_count, 0)  AS routes_count,
+            COALESCE(sc.stops_count, 0)   AS stops_count,
+            os.otp_pct,
+            os.avg_delay_seconds,
+            COALESCE(os.sample_events, 0) AS sample_events,
+            COALESCE(hs.hot_stops, 0)     AS hot_stops,
+            0                              AS alerts_active
+        FROM agencies a
+        LEFT JOIN route_counts rc USING (agency_id)
+        LEFT JOIN stop_counts  sc USING (agency_id)
+        LEFT JOIN otp_stats    os USING (agency_id)
+        LEFT JOIN hot_stops    hs USING (agency_id)
+        ORDER BY routes_count DESC, a.agency_name
+    """), {"start_date": start_date, "end_date": end_date}).mappings().all()
+    return [dict(r) for r in rows]
+
+
 # ── Cross-agency OTP benchmarking ──────────────────────────────────────────────
-
-_AGENCY_NAMES: Dict[str, str] = {
-    "AC": "AC Transit",
-    "BA": "BART",
-    "SF": "Muni/SFMTA",
-    "CT": "Caltrain",
-    "SM": "SamTrans",
-    "GG": "Golden Gate Transit",
-    "WH": "SF Bay Ferry (WETA)",
-    "VN": "VTA",
-    "SC": "Sonoma County Transit",
-    "MA": "Marin Transit",
-    "WC": "WestCAT",
-    "CC": "County Connection",
-}
-
 
 def get_agency_otp_benchmarks(
     conn: Connection,
@@ -1089,6 +1157,7 @@ def get_agency_otp_benchmarks(
         )
         SELECT
             ps.agency_id,
+            COALESCE(a.agency_name, ps.agency_id) AS agency_name,
             ps.total_observations,
             ps.on_time_count,
             ps.on_time_pct,
@@ -1100,6 +1169,7 @@ def get_agency_otp_benchmarks(
             )::double precision AS trend
         FROM period_stats ps
         LEFT JOIN prior_stats pr USING (agency_id)
+        LEFT JOIN agencies   a  USING (agency_id)
         ORDER BY ps.on_time_pct DESC NULLS LAST
         """),
         {
@@ -1110,10 +1180,7 @@ def get_agency_otp_benchmarks(
         },
     ).mappings().all()
 
-    return [
-        {**dict(r), "agency_name": _AGENCY_NAMES.get(r["agency_id"], r["agency_id"])}
-        for r in rows
-    ]
+    return [dict(r) for r in rows]
 
 
 def get_schedule_drift(conn: Connection, agency_id: str, route_id: str, months_back: int = 3) -> list[dict]:
