@@ -5,6 +5,26 @@ import { FilterProvider } from "../context/FilterContext";
 import { SelectionProvider, useSelection } from "../context/SelectionContext";
 import { Overview } from "./Overview";
 
+vi.mock("mapbox-gl", () => ({
+  default: {
+    accessToken: "",
+    Map: vi.fn().mockImplementation(() => ({
+      on: vi.fn(), off: vi.fn(), addControl: vi.fn(), remove: vi.fn(),
+      getStyle: vi.fn(() => ({ layers: [] })),
+      isStyleLoaded: vi.fn(() => false), setStyle: vi.fn(),
+      getSource: vi.fn(), getLayer: vi.fn(), getCanvas: vi.fn(() => ({ style: {} })),
+    })),
+    NavigationControl: vi.fn(),
+    ScaleControl: vi.fn(),
+    Popup: vi.fn().mockImplementation(() => ({
+      setLngLat: function() { return this; },
+      setHTML:  function() { return this; },
+      addTo:    function() { return this; },
+      remove:   function() { return this; },
+    })),
+  },
+}));
+
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {

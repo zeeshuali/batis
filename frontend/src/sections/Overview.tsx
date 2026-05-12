@@ -3,6 +3,7 @@ import { useFilters } from "../context/FilterContext";
 import { useSelection } from "../context/SelectionContext";
 import { api } from "../lib/api";
 import { KpiCard, DataList, TrendChart, Spinner, EmptyState, type DataListItem, type TrendPoint } from "../components/primitives";
+import { SectionMap } from "../components/SectionMap";
 import "./sections.css";
 
 interface ReliabilityRow {
@@ -89,6 +90,7 @@ export const Overview: React.FC = () => {
       </div>
 
       <div className="section__grid">
+        <SectionMap mapMode="reliability" title="Network reliability" height={420} />
         <div className="section__panel">
           <h3 className="section__panel-title">Slowest performers</h3>
           {loading && worstRoutes.length === 0 ? <Spinner /> : worstRoutes.length === 0 ? (
@@ -97,15 +99,15 @@ export const Overview: React.FC = () => {
             <DataList items={worstRoutes} selectedId={selection.routeId} onSelect={setRouteId} />
           )}
         </div>
+      </div>
 
-        <div className="section__panel">
-          <h3 className="section__panel-title">Network delay trend</h3>
-          {loading && trendPoints.length === 0 ? <Spinner /> : trendPoints.length === 0 ? (
-            <EmptyState message="No trend data in this window." />
-          ) : (
-            <TrendChart data={trendPoints} yLabel="sec" />
-          )}
-        </div>
+      <div className="section__panel">
+        <h3 className="section__panel-title">Network delay trend</h3>
+        {loading && trendPoints.length === 0 ? <Spinner /> : trendPoints.length === 0 ? (
+          <EmptyState message="No trend data in this window." />
+        ) : (
+          <TrendChart data={trendPoints} yLabel="sec" />
+        )}
       </div>
     </div>
   );
