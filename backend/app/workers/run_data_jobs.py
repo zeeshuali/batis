@@ -23,7 +23,7 @@ from sqlalchemy import text
 from app.db import get_engine
 from app.services.coverage_builder import build_coverage_cells, build_transit_deserts
 from app.services.features_builder import rebuild_stop_features, rebuild_trip_stop_snapshots
-from app.services.gtfs_static_loader import load_gtfs_static
+from app.services.gtfs_static_loader import load_all_agencies_gtfs, load_gtfs_static
 from app.services.headways import compute_headways
 from app.services.models_delay_bunching import generate_bunching_predictions, generate_delay_predictions
 from app.services.models_demand_crowding import (
@@ -34,6 +34,7 @@ from app.services.safety_incidents_loader import load_safety_incidents
 from app.services.equity_loader import populate_equity_columns
 from app.services.safety_scoring import compute_stop_safety_scores
 from app.services.seed_from_static import seed_ops_from_static
+from app.services.five11_stop_observations import load_missing_months
 
 
 def _parse_date(s: str | None) -> date | None:
@@ -56,10 +57,20 @@ def main() -> None:
 
     engine = get_engine()
 
-    print("1/10 Loading GTFS static feed...")
+    print("1/10 Loading GTFS static feeds...")
     try:
-        load_gtfs_static()
-        print("     GTFS static load done.")
+        from app.core.config import get_settings as _gs
+        if _gs().five11_api_key:
+            summary = load_all_agencies_gtfs()
+            ok = sum(1 for v in summary.values() if v == "ok")
+            failed = sum(1 for v in summary.values() if v.startswith("failed"))
+            print(f"     Multi-agency GTFS load done: {ok} ok, {failed} failed.")
+            for agency_id, status in summary.items():
+                if status != "ok":
+                    print(f"     [{agency_id}] {status}")
+        else:
+            load_gtfs_static()
+            print("     GTFS static load done (AC Transit only — FIVE11_API_KEY not set).")
     except Exception as e:
         print("     GTFS static load failed (skipping):", e)
         print("     Continuing; other jobs need GTFS data already in DB.")
@@ -79,14 +90,20 @@ def main() -> None:
         print(f"     Seeded {total_seeded} ops events across {(end_date - start_date).days + 1} days.")
 
     print("2/10 Rebuilding trip_stop_snapshots...")
-    with engine.begin() as conn:
-        rebuild_trip_stop_snapshots(start_date, end_date, conn=conn)
-    print("     Done.")
+    try:
+        with engine.begin() as conn:
+            rebuild_trip_stop_snapshots(start_date, end_date, conn=conn)
+        print("     Done.")
+    except Exception as e:
+        print("     trip_stop_snapshots failed (skipping):", e)
 
     print("3/10 Rebuilding stop_features...")
-    with engine.begin() as conn:
-        rebuild_stop_features(conn=conn)
-    print("     Done.")
+    try:
+        with engine.begin() as conn:
+            rebuild_stop_features(conn=conn)
+        print("     Done.")
+    except Exception as e:
+        print("     stop_features failed (skipping):", e)
 
     print("4/10 Computing headways for each service date...")
     current = start_date
@@ -100,20 +117,29 @@ def main() -> None:
     print("     Done.")
 
     print("5/10 Generating delay predictions...")
-    with engine.begin() as conn:
-        generate_delay_predictions(start_date, end_date, conn=conn)
-    print("     Done.")
+    try:
+        with engine.begin() as conn:
+            generate_delay_predictions(start_date, end_date, conn=conn)
+        print("     Done.")
+    except Exception as e:
+        print("     Delay predictions failed (skipping):", e)
 
     print("6/10 Generating bunching predictions...")
-    with engine.begin() as conn:
-        generate_bunching_predictions(start_date, end_date, conn=conn)
-    print("     Done.")
+    try:
+        with engine.begin() as conn:
+            generate_bunching_predictions(start_date, end_date, conn=conn)
+        print("     Done.")
+    except Exception as e:
+        print("     Bunching predictions failed (skipping):", e)
 
     print("7/10 Generating demand forecasts and crowding predictions...")
-    with engine.begin() as conn:
-        generate_demand_forecasts(start_date, end_date, conn=conn)
-        generate_crowding_predictions_from_demand(start_date, end_date, conn=conn)
-    print("     Done.")
+    try:
+        with engine.begin() as conn:
+            generate_demand_forecasts(start_date, end_date, conn=conn)
+            generate_crowding_predictions_from_demand(start_date, end_date, conn=conn)
+        print("     Done.")
+    except Exception as e:
+        print("     Demand/crowding predictions failed (skipping):", e)
 
     print("8/10 Loading safety incidents from Oakland open data...")
     try:
@@ -138,12 +164,29 @@ def main() -> None:
         print("     Coverage build failed (skipping):", e)
     print("     Done.")
 
-    print("11/11 Populating equity columns from Census ACS...")
+    print("11/12 Populating equity columns from Census ACS...")
     try:
         with engine.begin() as conn:
             populate_equity_columns(conn=conn)
     except Exception as e:
         print(f"     Equity population failed (skipping): {e}")
+    print("     Done.")
+
+    print("12/12 Loading previous month stop_observations (if not already loaded)...")
+    try:
+        from app.core.config import get_settings as _gs2
+        if _gs2().five11_api_key:
+            with engine.begin() as conn:
+                results = load_missing_months(conn, months_back=1)
+            if results:
+                for month, n in results.items():
+                    print(f"     {month}: {n:,} rows" if n >= 0 else f"     {month}: FAILED")
+            else:
+                print("     Already up to date.")
+        else:
+            print("     Skipped — FIVE11_API_KEY not configured.")
+    except Exception as e:
+        print(f"     stop_observations load failed (skipping): {e}")
     print("     Done.")
 
     print("All data jobs completed.")

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
@@ -28,7 +28,11 @@ def get_reliability_summary(
         SELECT
           route_id,
           COUNT(*) AS sample_events,
-          AVG(CASE WHEN delay_seconds IS NULL THEN 0 ELSE delay_seconds END) AS avg_delay_seconds
+          AVG(CASE WHEN delay_seconds IS NULL THEN 0 ELSE delay_seconds END) AS avg_delay_seconds,
+          ROUND(
+            SUM(CASE WHEN delay_seconds <= 60 THEN 1 ELSE 0 END)::numeric
+            / NULLIF(COUNT(*), 0) * 100, 1
+          )::double precision AS on_time_pct
         FROM ops_trip_events
         WHERE service_date BETWEEN :start_date AND :end_date
         {route_filter}
@@ -496,7 +500,7 @@ def get_stop_detail(conn: Connection, stop_id: str) -> Optional[Dict[str, Any]]:
         text("""
         SELECT
             s.stop_id, s.stop_code, s.stop_name, s.stop_desc,
-            s.stop_lat, s.stop_lon,
+            s.stop_lat, s.stop_lon, s.agency_id,
             COALESCE(sc.safety_score, 0)::double precision         AS safety_score,
             COALESCE(sc.crime_incidents_nearby, 0)                 AS crime_incidents_nearby,
             COALESCE(sc.collisions_nearby, 0)                      AS collisions_nearby
@@ -659,7 +663,7 @@ def get_live_vehicles(conn: Connection) -> Dict[str, Any]:
     rows = conn.execute(
         text("""
         SELECT DISTINCT ON (vehicle_id)
-            vehicle_id, trip_id, route_id,
+            vehicle_id, trip_id, route_id, agency_id,
             latitude, longitude, bearing, speed, occupancy_status,
             timestamp,
             ST_AsGeoJSON(geom)::json AS geometry
@@ -882,9 +886,9 @@ def get_route_comparison(
            AND e.delay_seconds IS NOT NULL
         WHERE r.route_id = ANY(:route_ids)
         GROUP BY r.route_id, r.route_short_name, r.route_long_name, r.route_color
-        ORDER BY ARRAY_POSITION(:route_ids::text[], r.route_id)
+        ORDER BY ARRAY_POSITION(CAST(:route_ids_ord AS text[]), r.route_id)
         """),
-        {"route_ids": route_ids, "start_date": start_date, "end_date": end_date},
+        {"route_ids": route_ids, "route_ids_ord": route_ids, "start_date": start_date, "end_date": end_date},
     ).mappings().all()
     return [dict(r) for r in rows]
 
@@ -1014,3 +1018,342 @@ def get_bunching_summary(
         {"start_date": start_date, "end_date": end_date},
     ).mappings().all()
     return [dict(r) for r in rows]
+
+
+# ── Cross-agency OTP benchmarking ──────────────────────────────────────────────
+
+_AGENCY_NAMES: Dict[str, str] = {
+    "AC": "AC Transit",
+    "BA": "BART",
+    "SF": "Muni/SFMTA",
+    "CT": "Caltrain",
+    "SM": "SamTrans",
+    "GG": "Golden Gate Transit",
+    "WH": "SF Bay Ferry (WETA)",
+    "VN": "VTA",
+    "SC": "Sonoma County Transit",
+    "MA": "Marin Transit",
+    "WC": "WestCAT",
+    "CC": "County Connection",
+}
+
+
+def get_agency_otp_benchmarks(
+    conn: Connection,
+    start_date: date,
+    end_date: date,
+) -> List[Dict[str, Any]]:
+    """
+    Cross-agency on-time performance benchmarks from stop_observations.
+
+    Computes OTP %, avg/median/p90 delay, and trend (vs. the prior period of
+    equal length) for every agency that has data in the requested window.
+    Sorted by on_time_pct descending.
+    """
+    period_days = (end_date - start_date).days + 1
+    prior_end = start_date - timedelta(days=1)
+    prior_start = prior_end - timedelta(days=period_days - 1)
+
+    rows = conn.execute(
+        text("""
+        WITH period_stats AS (
+            SELECT
+                agency_id,
+                COUNT(*)                                                  AS total_observations,
+                SUM(CASE WHEN on_time THEN 1 ELSE 0 END)::bigint          AS on_time_count,
+                ROUND(
+                    100.0 * SUM(CASE WHEN on_time THEN 1 ELSE 0 END)
+                    / NULLIF(COUNT(*), 0), 2
+                )::double precision                                       AS on_time_pct,
+                ROUND(AVG(delay_seconds::float))::double precision        AS avg_delay_seconds,
+                PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY delay_seconds)
+                    ::double precision                                    AS median_delay_seconds,
+                PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY delay_seconds)
+                    ::double precision                                    AS p90_delay_seconds
+            FROM stop_observations
+            WHERE service_date BETWEEN :start_date AND :end_date
+              AND on_time IS NOT NULL
+            GROUP BY agency_id
+        ),
+        prior_stats AS (
+            SELECT
+                agency_id,
+                ROUND(
+                    100.0 * SUM(CASE WHEN on_time THEN 1 ELSE 0 END)
+                    / NULLIF(COUNT(*), 0), 2
+                )::double precision AS on_time_pct
+            FROM stop_observations
+            WHERE service_date BETWEEN :prior_start AND :prior_end
+              AND on_time IS NOT NULL
+            GROUP BY agency_id
+        )
+        SELECT
+            ps.agency_id,
+            ps.total_observations,
+            ps.on_time_count,
+            ps.on_time_pct,
+            ps.avg_delay_seconds,
+            ps.median_delay_seconds,
+            ps.p90_delay_seconds,
+            ROUND(
+                (ps.on_time_pct - COALESCE(pr.on_time_pct, ps.on_time_pct))::numeric, 2
+            )::double precision AS trend
+        FROM period_stats ps
+        LEFT JOIN prior_stats pr USING (agency_id)
+        ORDER BY ps.on_time_pct DESC NULLS LAST
+        """),
+        {
+            "start_date": start_date,
+            "end_date": end_date,
+            "prior_start": prior_start,
+            "prior_end": prior_end,
+        },
+    ).mappings().all()
+
+    return [
+        {**dict(r), "agency_name": _AGENCY_NAMES.get(r["agency_id"], r["agency_id"])}
+        for r in rows
+    ]
+
+
+def get_schedule_drift(conn: Connection, agency_id: str, route_id: str, months_back: int = 3) -> list[dict]:
+    cutoff_date = date.today() - timedelta(days=months_back * 30)
+
+    rows = conn.execute(text("""
+        WITH ordered AS (
+            SELECT
+                so.trip_id,
+                so.service_date,
+                so.stop_id,
+                so.scheduled_arrival,
+                so.observed_arrival,
+                gst.stop_sequence,
+                gt.direction_id,
+                LEAD(so.stop_id)            OVER w AS next_stop_id,
+                LEAD(gst.stop_sequence)     OVER w AS next_stop_seq,
+                LEAD(so.scheduled_arrival)  OVER w AS next_scheduled,
+                LEAD(so.observed_arrival)   OVER w AS next_observed
+            FROM stop_observations so
+            JOIN gtfs_stop_times gst
+                ON gst.trip_id = so.trip_id AND gst.stop_id = so.stop_id
+            JOIN gtfs_trips gt ON gt.trip_id = so.trip_id
+            WHERE so.agency_id     = :agency_id
+              AND so.route_id      = :route_id
+              AND so.service_date >= :cutoff_date
+              AND so.scheduled_arrival IS NOT NULL
+              AND so.observed_arrival  IS NOT NULL
+            WINDOW w AS (PARTITION BY so.trip_id, so.service_date ORDER BY gst.stop_sequence)
+        ),
+        pairs AS (
+            SELECT
+                stop_id      AS from_stop_id,
+                next_stop_id AS to_stop_id,
+                direction_id,
+                EXTRACT(EPOCH FROM (next_scheduled - scheduled_arrival)) AS sched_secs,
+                EXTRACT(EPOCH FROM (next_observed  - observed_arrival))  AS actual_secs
+            FROM ordered
+            WHERE next_stop_id IS NOT NULL
+              AND next_stop_seq = stop_sequence + 1
+              AND EXTRACT(EPOCH FROM (next_scheduled - scheduled_arrival)) > 0
+              AND EXTRACT(EPOCH FROM (next_observed  - observed_arrival))  BETWEEN 0 AND 3600
+        ),
+        aggregated AS (
+            SELECT
+                from_stop_id,
+                to_stop_id,
+                direction_id,
+                COUNT(*)                                                          AS obs_count,
+                AVG(sched_secs)                                                   AS avg_sched_secs,
+                AVG(actual_secs)                                                  AS avg_actual_secs,
+                PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY actual_secs)          AS p90_actual_secs
+            FROM pairs
+            GROUP BY from_stop_id, to_stop_id, direction_id
+            HAVING COUNT(*) >= 5
+        )
+        SELECT
+            a.from_stop_id,
+            COALESCE(fs.stop_name, a.from_stop_id) AS from_stop_name,
+            a.to_stop_id,
+            COALESCE(ts.stop_name, a.to_stop_id)   AS to_stop_name,
+            a.direction_id,
+            a.obs_count,
+            ROUND(a.avg_sched_secs::numeric,  1)::double precision AS avg_sched_secs,
+            ROUND(a.avg_actual_secs::numeric, 1)::double precision AS avg_actual_secs,
+            ROUND(a.p90_actual_secs::numeric, 1)::double precision AS p90_actual_secs,
+            ROUND(
+                ((a.avg_actual_secs - a.avg_sched_secs)
+                 / NULLIF(a.avg_sched_secs, 0) * 100)::numeric, 1
+            )::double precision AS drift_pct,
+            CASE
+                WHEN ABS((a.avg_actual_secs - a.avg_sched_secs)
+                         / NULLIF(a.avg_sched_secs, 0) * 100) > 15 THEN 'HIGH'
+                WHEN ABS((a.avg_actual_secs - a.avg_sched_secs)
+                         / NULLIF(a.avg_sched_secs, 0) * 100) > 5  THEN 'MODERATE'
+                ELSE 'OK'
+            END AS drift_flag
+        FROM aggregated a
+        LEFT JOIN gtfs_stops fs ON fs.stop_id = a.from_stop_id
+        LEFT JOIN gtfs_stops ts ON ts.stop_id = a.to_stop_id
+        ORDER BY ABS(a.avg_actual_secs - a.avg_sched_secs) DESC
+    """), {
+        "agency_id": agency_id,
+        "route_id":  route_id,
+        "cutoff_date": cutoff_date,
+    }).mappings().all()
+
+    return [dict(r) for r in rows]
+
+
+def get_service_delivery_gap(
+    conn: Connection,
+    agency_id: str,
+    start_date: date,
+    end_date: date,
+) -> List[Dict[str, Any]]:
+    """
+    Per-route service delivery rate from stop_observations.
+
+    service_delivery_rate = 100 × rows_with_observed_arrival / total_rows  (0–100 %).
+    A rate below 100 indicates trips that were scheduled but not observed by the archive.
+    Returns an empty list when no observations exist for the requested window.
+    """
+    rows = conn.execute(
+        text("""
+        SELECT
+            route_id,
+            COUNT(*)                                                                      AS total_observations,
+            SUM(CASE WHEN observed_arrival IS NOT NULL THEN 1 ELSE 0 END)::bigint        AS delivered_count,
+            ROUND(
+                100.0 * SUM(CASE WHEN observed_arrival IS NOT NULL THEN 1 ELSE 0 END)
+                / NULLIF(COUNT(*), 0), 2
+            )::double precision                                                           AS service_delivery_rate
+        FROM stop_observations
+        WHERE agency_id    = :agency_id
+          AND service_date BETWEEN :start_date AND :end_date
+        GROUP BY route_id
+        ORDER BY route_id
+        """),
+        {"agency_id": agency_id, "start_date": start_date, "end_date": end_date},
+    ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def get_traffic_transit_impact(conn: Connection) -> list[dict]:
+    """
+    For every active traffic event / work zone, find bus routes whose stops
+    fall within 800 m, then enrich with historical delay context.
+    Returns one row per (event, route) pair with an alert_level classification.
+    """
+    cutoff_12w = date.today() - timedelta(days=84)
+
+    rows = conn.execute(text("""
+        WITH active_events AS (
+            SELECT event_id,
+                   'event'   AS source_type,
+                   event_type,
+                   severity,
+                   COALESCE(road_name, description, event_type) AS road_name,
+                   geom::geometry AS geom
+            FROM traffic_events
+            WHERE geom IS NOT NULL
+              AND (end_time IS NULL OR end_time > now())
+            UNION ALL
+            SELECT zone_id AS event_id,
+                   'workzone' AS source_type,
+                   'WORKZONE'  AS event_type,
+                   CASE
+                       WHEN description ILIKE '%major%' OR description ILIKE '%closure%'
+                       THEN 'Major'
+                       ELSE 'Moderate'
+                   END         AS severity,
+                   COALESCE(road_name, description) AS road_name,
+                   ST_Centroid(geom::geometry)       AS geom
+            FROM work_zones
+            WHERE geom IS NOT NULL
+              AND (end_time IS NULL OR end_time > now())
+        ),
+        affected_stops AS (
+            SELECT e.event_id,
+                   e.source_type,
+                   e.event_type,
+                   e.severity,
+                   e.road_name,
+                   s.stop_id,
+                   ST_Distance(s.geom::geography, e.geom::geography) AS proximity_meters
+            FROM active_events e
+            JOIN gtfs_stops s
+              ON ST_DWithin(s.geom::geography, e.geom::geography, 800)
+        ),
+        route_stops AS (
+            SELECT DISTINCT
+                   ast.event_id,
+                   ast.source_type,
+                   ast.event_type,
+                   ast.severity,
+                   ast.road_name,
+                   ast.stop_id,
+                   ast.proximity_meters,
+                   gr.route_id,
+                   gr.agency_id,
+                   gr.route_short_name,
+                   gr.route_color
+            FROM affected_stops ast
+            JOIN gtfs_stop_times gst ON gst.stop_id = ast.stop_id
+            JOIN gtfs_trips      gt  ON gt.trip_id  = gst.trip_id
+            JOIN gtfs_routes     gr  ON gr.route_id = gt.route_id
+        ),
+        historical AS (
+            SELECT route_id,
+                   stop_id,
+                   AVG(NULLIF(delay_seconds, 0)) AS avg_delay_seconds
+            FROM stop_observations
+            WHERE service_date >= :cutoff_12w
+              AND delay_seconds IS NOT NULL
+              AND EXTRACT(DOW  FROM service_date) =
+                  EXTRACT(DOW  FROM CURRENT_DATE)
+              AND EXTRACT(HOUR FROM scheduled_arrival AT TIME ZONE 'America/Los_Angeles') =
+                  EXTRACT(HOUR FROM NOW()             AT TIME ZONE 'America/Los_Angeles')
+            GROUP BY route_id, stop_id
+        )
+        SELECT
+            rs.event_id,
+            rs.source_type,
+            rs.event_type,
+            rs.severity,
+            rs.road_name,
+            rs.route_id,
+            rs.agency_id,
+            rs.route_short_name,
+            COALESCE(rs.route_color, '3b82f6')                        AS route_color,
+            ARRAY_AGG(DISTINCT rs.stop_id)                            AS affected_stop_ids,
+            MIN(rs.proximity_meters)::double precision                AS proximity_meters,
+            COALESCE(AVG(h.avg_delay_seconds), 0)::double precision   AS historical_avg_delay_seconds,
+            CASE
+                WHEN rs.severity ILIKE 'major' OR MIN(rs.proximity_meters) < 200
+                THEN 'CRITICAL'
+                WHEN rs.severity ILIKE 'moderate' OR MIN(rs.proximity_meters) < 500
+                THEN 'WARNING'
+                ELSE 'WATCH'
+            END AS alert_level
+        FROM route_stops rs
+        LEFT JOIN historical h
+          ON h.route_id = rs.route_id AND h.stop_id = rs.stop_id
+        GROUP BY
+            rs.event_id, rs.source_type, rs.event_type, rs.severity, rs.road_name,
+            rs.route_id, rs.agency_id, rs.route_short_name, rs.route_color
+        ORDER BY
+            CASE WHEN rs.severity ILIKE 'major' OR MIN(rs.proximity_meters) < 200
+                 THEN 0
+                 WHEN rs.severity ILIKE 'moderate' OR MIN(rs.proximity_meters) < 500
+                 THEN 1 ELSE 2 END,
+            MIN(rs.proximity_meters)
+    """), {"cutoff_12w": cutoff_12w}).mappings().all()
+
+    result = []
+    for r in rows:
+        d = dict(r)
+        # Convert PostgreSQL array to a plain Python list
+        if d.get("affected_stop_ids") and not isinstance(d["affected_stop_ids"], list):
+            d["affected_stop_ids"] = list(d["affected_stop_ids"])
+        result.append(d)
+    return result

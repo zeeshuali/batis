@@ -1,3 +1,5 @@
+# DEPRECATED — replaced by five11_rt_ingestor.py (511.org multi-agency feed).
+# Kept for reference; no longer wired into the application lifespan.
 from __future__ import annotations
 
 import json
@@ -5,6 +7,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Iterable
 
+import certifi
 import requests
 from dateutil import tz
 from google.transit import gtfs_realtime_pb2
@@ -24,7 +27,7 @@ def _build_url(base: str | None, default_path: str, token: str | None) -> str:
 
 
 def _fetch_feed(url: str) -> gtfs_realtime_pb2.FeedMessage:
-    resp = requests.get(url, timeout=30, verify=False)
+    resp = requests.get(url, timeout=30, verify=certifi.where())
     resp.raise_for_status()
     feed = gtfs_realtime_pb2.FeedMessage()
     feed.ParseFromString(resp.content)
