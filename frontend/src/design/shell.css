@@ -19,11 +19,13 @@ body {
   display: grid;
   grid-template-rows:
     var(--shell-header-h)
+    auto
     var(--shell-filterbar-h)
     1fr;
   grid-template-columns: 1fr var(--shell-rail-w);
   grid-template-areas:
     "header   header"
+    "alerts   alerts"
     "filter   filter"
     "main     rail";
   height: 100vh;
@@ -108,3 +110,10 @@ body {
   padding: var(--space-4);
   text-align: center;
 }
+
+.shell-alerts {
+  grid-area: alerts;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-1);
+}
+.shell-alerts:empty { display: none; }   /* collapse the row when no alerts */
