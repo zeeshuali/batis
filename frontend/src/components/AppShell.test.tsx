@@ -4,6 +4,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { FilterProvider } from "../context/FilterContext";
 import { SelectionProvider } from "../context/SelectionContext";
+import { ThemeProvider } from "../context/ThemeContext";
 import { AppShell } from "./AppShell";
 
 // jsdom has no WebGL — section maps would crash when a section that embeds
@@ -42,9 +43,11 @@ vi.mock("../lib/api", async () => {
 
 function wrap(ui: React.ReactElement) {
   return (
-    <FilterProvider>
-      <SelectionProvider>{ui}</SelectionProvider>
-    </FilterProvider>
+    <ThemeProvider>
+      <FilterProvider>
+        <SelectionProvider>{ui}</SelectionProvider>
+      </FilterProvider>
+    </ThemeProvider>
   );
 }
 
@@ -84,5 +87,15 @@ describe("AppShell", () => {
     // StopDrawer renders nothing when stopId is null — verify there's no
     // "open" drawer overlay.
     expect(document.querySelector(".stop-drawer--open")).not.toBeInTheDocument();
+  });
+
+  it("renders a theme toggle that flips data-theme on <html>", async () => {
+    document.documentElement.removeAttribute("data-theme");
+    window.localStorage.clear();
+    render(wrap(<AppShell />));
+    // ThemeProvider applies "dark" on mount via useEffect; in jsdom this happens synchronously
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    await userEvent.click(screen.getByLabelText(/switch to light theme/i));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
   });
 });

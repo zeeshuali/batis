@@ -7,6 +7,7 @@ import { Operations } from "../sections/Operations";
 import { Network } from "../sections/Network";
 import { EquitySafety } from "../sections/EquitySafety";
 import { BenchmarksDrift } from "../sections/BenchmarksDrift";
+import { useTheme } from "../context/ThemeContext";
 import "../design/shell.css";
 
 export type SectionKey = "overview" | "operations" | "network" | "equity" | "benchmarks";
@@ -21,9 +22,10 @@ const TABS: { key: SectionKey; label: string }[] = [
 
 export const AppShell: React.FC = () => {
   const [active, setActive] = useState<SectionKey>("overview");
+  const { theme, toggle } = useTheme();
 
   return (
-    <div className="shell" data-theme="dark">
+    <div className="shell">
       <header className="shell-header">
         <span className="shell-header__brand">BATIS</span>
         <nav className="shell-nav" role="tablist">
@@ -39,6 +41,15 @@ export const AppShell: React.FC = () => {
             </button>
           ))}
         </nav>
+        <button
+          type="button"
+          className="shell-header__theme-toggle"
+          onClick={toggle}
+          aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          title={theme === "dark" ? "Switch to light" : "Switch to dark"}
+        >
+          {theme === "dark" ? "☀" : "🌙"}
+        </button>
       </header>
 
       <div className="shell-alerts">
