@@ -3,9 +3,8 @@ import { useFilters } from "../context/FilterContext";
 import { api } from "../lib/api";
 import { KpiCard, BarChart, Spinner, EmptyState, type BarPoint } from "../components/primitives";
 import { agencyColor, agencyName } from "../lib/agencies";
+import { AgencyOtpRow } from "../types/data";
 import "./sections.css";
-
-interface AgencyOtpRow { agency_id: string; on_time_pct: number; avg_delay_seconds: number; sample_events: number; }
 
 export const BenchmarksDrift: React.FC = () => {
   const { filters } = useFilters();

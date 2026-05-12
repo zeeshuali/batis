@@ -4,10 +4,10 @@ import { useSelection } from "../context/SelectionContext";
 import { api } from "../lib/api";
 import { KpiCard, DataList, Spinner, EmptyState, type DataListItem } from "../components/primitives";
 import { SectionMap } from "../components/SectionMap";
+import { SafetyRow } from "../types/data";
 import "./sections.css";
 
 interface EquityFeature { properties: { equity_score?: number; }; }
-interface SafetyRow { stop_id: string; stop_name?: string; safety_score: number; }
 
 export const EquitySafety: React.FC = () => {
   const { filters } = useFilters();

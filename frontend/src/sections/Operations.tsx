@@ -4,23 +4,9 @@ import { useSelection } from "../context/SelectionContext";
 import { api } from "../lib/api";
 import { KpiCard, DataList, Spinner, EmptyState, type DataListItem } from "../components/primitives";
 import { SectionMap } from "../components/SectionMap";
+import { ReliabilityRow, VehicleFC, BunchingRow } from "../types/data";
+import { fmtMin, fmtPct } from "../lib/format";
 import "./sections.css";
-
-interface ReliabilityRow {
-  route_id: string;
-  sample_events: number;
-  avg_delay_seconds: number;
-  on_time_pct?: number;
-}
-/** /vehicles/live returns a GeoJSON FeatureCollection, not a flat array. */
-interface VehicleFC { type: "FeatureCollection"; features: unknown[]; }
-/** /bunching/summary returns rows with late_events / event_count / avg_delay_seconds. */
-interface BunchingRow { route_id: string; event_count: number; late_events?: number; avg_delay_seconds?: number; }
-
-function fmtMin(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  return `${(seconds / 60).toFixed(1)} min`;
-}
 
 export const Operations: React.FC = () => {
   const { filters } = useFilters();
@@ -82,7 +68,7 @@ export const Operations: React.FC = () => {
       </div>
 
       <div className="section__kpi-strip">
-        <KpiCard label="Network OTP"   value={networkOtp === null ? "—" : `${networkOtp.toFixed(1)}%`} />
+        <KpiCard label="Network OTP"   value={fmtPct(networkOtp)} />
         <KpiCard label="Avg delay"     value={avgDelay   === null ? "—" : fmtMin(avgDelay)} />
         <KpiCard label="Live vehicles" value={String(vehicleCount)} />
         <KpiCard label="Bunched"       value={String(bunchedTotal)} sub="events in window" />

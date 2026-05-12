@@ -5,9 +5,8 @@ import { api } from "../lib/api";
 import { KpiCard, DataList, Spinner, EmptyState, type DataListItem } from "../components/primitives";
 import { SectionMap } from "../components/SectionMap";
 import { agencyName } from "../lib/agencies";
+import { RouteRow } from "../types/data";
 import "./sections.css";
-
-interface RouteRow { route_id: string; route_short_name?: string; agency_id?: string; }
 
 export const Network: React.FC = () => {
   const { filters } = useFilters();
