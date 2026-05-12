@@ -1,19 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type SectionKey = "overview" | "operations" | "network" | "equity" | "benchmarks" | "agency";
-const SECTION_KEYS: readonly SectionKey[] = ["overview", "operations", "network", "equity", "benchmarks", "agency"];
+export type SectionKey = "overview" | "operations" | "network" | "equity" | "benchmarks" | "agency" | "planning";
+const SECTION_KEYS: readonly SectionKey[] = ["overview", "operations", "network", "equity", "benchmarks", "agency", "planning"];
 
 export interface UrlState {
-  section:   SectionKey;
-  from:      string | null;     // YYYY-MM-DD
-  to:        string | null;
-  agencies:  string[] | null;   // null means "all"
-  q:         string | null;     // search
-  agency_id: string | null;     // selected agency for the "agency" drill-down section
+  section:    SectionKey;
+  /** Sub-page within the active section.  Only "planning" uses this today
+   *  (sub = "diagnostics" | "coverage" | "regional" | "workbench" |
+   *  "scenarios"); other sections ignore it. */
+  subsection: string | null;
+  from:       string | null;    // YYYY-MM-DD
+  to:         string | null;
+  agencies:   string[] | null;  // null means "all"
+  q:          string | null;    // search
+  agency_id:  string | null;    // selected agency for the "agency" drill-down section
 }
 
 const DEFAULT_STATE: UrlState = {
   section: "overview",
+  subsection: null,
   from: null, to: null,
   agencies: null, q: null,
   agency_id: null,
@@ -28,16 +33,18 @@ export function parseHash(hash: string): UrlState {
   const ag = params.get("agencies");
   return {
     section,
-    from:      params.get("from") || null,
-    to:        params.get("to")   || null,
-    agencies:  ag ? ag.split(",").filter(Boolean) : null,
-    q:         params.get("q")    || null,
-    agency_id: params.get("id")   || null,
+    subsection: params.get("sub")  || null,
+    from:       params.get("from") || null,
+    to:         params.get("to")   || null,
+    agencies:   ag ? ag.split(",").filter(Boolean) : null,
+    q:          params.get("q")    || null,
+    agency_id:  params.get("id")   || null,
   };
 }
 
 export function encodeHash(state: UrlState): string {
   const params = new URLSearchParams();
+  if (state.subsection)        params.set("sub", state.subsection);
   if (state.from)              params.set("from", state.from);
   if (state.to)                params.set("to", state.to);
   if (state.agencies && state.agencies.length > 0) params.set("agencies", state.agencies.join(","));

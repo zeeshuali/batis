@@ -5,16 +5,17 @@ import { useUrlState, parseHash, encodeHash } from "./useUrlState";
 describe("parseHash / encodeHash", () => {
   it("round-trips an empty state to a section-only hash", () => {
     expect(parseHash("#network")).toEqual({
-      section: "network", from: null, to: null, agencies: null, q: null, agency_id: null,
+      section: "network", subsection: null, from: null, to: null, agencies: null, q: null, agency_id: null,
     });
     expect(encodeHash({
-      section: "network", from: null, to: null, agencies: null, q: null, agency_id: null,
+      section: "network", subsection: null, from: null, to: null, agencies: null, q: null, agency_id: null,
     })).toBe("#network");
   });
 
   it("encodes and decodes a full state", () => {
     const state = {
       section: "equity" as const,
+      subsection: null,
       from: "2026-04-01",
       to: "2026-04-30",
       agencies: ["AC", "BA"],
@@ -33,6 +34,7 @@ describe("parseHash / encodeHash", () => {
   it("round-trips an #agency drill-down state", () => {
     const state = {
       section: "agency" as const,
+      subsection: null,
       from: "2026-05-01",
       to: "2026-05-08",
       agencies: null,
@@ -42,6 +44,20 @@ describe("parseHash / encodeHash", () => {
     const hash = encodeHash(state);
     expect(hash).toContain("#agency?");
     expect(hash).toContain("id=BA");
+    expect(parseHash(hash)).toEqual(state);
+  });
+
+  it("round-trips a #planning sub-page state", () => {
+    const state = {
+      section: "planning" as const,
+      subsection: "coverage",
+      from: null, to: null,
+      agencies: null, q: null,
+      agency_id: null,
+    };
+    const hash = encodeHash(state);
+    expect(hash).toContain("#planning?");
+    expect(hash).toContain("sub=coverage");
     expect(parseHash(hash)).toEqual(state);
   });
 
