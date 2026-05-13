@@ -116,6 +116,7 @@ export const SelectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setScenarioStopsState([]);
     setFaresOriginState(null);
     setFaresDestinationState(null);
+    setServiceGapDrillCellState(null);
   }, []);
 
   const value = useMemo<SelectionApi>(
