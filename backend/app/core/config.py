@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # the existing equity_score (Sprint 0).
     census_api_key: str | None = None
 
+    # Census ACS 5-year estimates REST base URL.
+    census_acs5_base_url: str = "https://api.census.gov/data/2022/acs/acs5"
+
     # Service delivery gap — tolerance window for "on time".
     # An observed arrival within ±N seconds of scheduled counts as a hit;
     # everything else counts as missed.  Default 300 (=±5 min).
