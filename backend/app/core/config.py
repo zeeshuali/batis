@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     # the existing equity_score (Sprint 0).
     census_api_key: str | None = None
 
+    # Service delivery gap — tolerance window for "on time".
+    # An observed arrival within ±N seconds of scheduled counts as a hit;
+    # everything else counts as missed.  Default 300 (=±5 min).
+    delivery_gap_tolerance_seconds: int = 300
+
     # AI / RAG
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"

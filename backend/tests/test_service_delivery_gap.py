@@ -238,3 +238,21 @@ def test_route_breakdown_returns_top_n_sorted(db_conn, gap_fixture_cells):
 def test_route_breakdown_respects_limit(db_conn, gap_fixture_cells):
     rows = get_route_breakdown_for_cell(db_conn, "test-A", limit=1)
     assert len(rows) <= 1
+
+
+def test_tolerance_seconds_config_override(db_conn, gap_fixture_cells, monkeypatch):
+    """When tolerance is widened past the observation lateness, missed
+    count drops to 0 (NULLs still count as missed)."""
+    monkeypatch.setenv("DELIVERY_GAP_TOLERANCE_SECONDS", "86400")  # 1 day
+    from app.core.config import get_settings
+    get_settings.cache_clear()
+    try:
+        compute_service_delivery_gap_for_all_cells(db_conn, min_scheduled=50)
+        # NULL observed_arrival is still counted as missed regardless
+        # of tolerance; test-A still has 7 NULLs.
+        row = db_conn.execute(text(
+            "SELECT missed_arrivals FROM service_delivery_gap WHERE cell_id = 'test-A'"
+        )).first()
+        assert row[0] == 7
+    finally:
+        get_settings.cache_clear()

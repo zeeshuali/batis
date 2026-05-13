@@ -35,17 +35,25 @@ def _gap_tier(pct: Optional[float]) -> Optional[str]:
 _DEFAULT_TOLERANCE_SECONDS = 5 * 60
 
 
+def _tolerance_seconds() -> int:
+    """Read the tolerance window from Settings, falling back to default."""
+    from app.core.config import get_settings
+    return get_settings().delivery_gap_tolerance_seconds or _DEFAULT_TOLERANCE_SECONDS
+
+
 def compute_service_delivery_gap_for_all_cells(
     conn: Connection,
     *,
     window_days: int = 365,
     min_scheduled: int = 50,
-    tolerance_seconds: int = _DEFAULT_TOLERANCE_SECONDS,
+    tolerance_seconds: Optional[int] = None,
 ) -> int:
     """Recompute gap_pct for every cell with >= min_scheduled scheduled
     arrivals in the trailing window_days.  UPSERTs into
     service_delivery_gap.  Returns number of cells written.
     """
+    if tolerance_seconds is None:
+        tolerance_seconds = _tolerance_seconds()
     window_end   = date.today()
     window_start = window_end - timedelta(days=window_days)
 
@@ -145,11 +153,13 @@ def get_route_breakdown_for_cell(
     *,
     limit: int = 5,
     window_days: int = 365,
-    tolerance_seconds: int = _DEFAULT_TOLERANCE_SECONDS,
+    tolerance_seconds: Optional[int] = None,
 ) -> list[dict[str, Any]]:
     """Top-N routes inside this cell by missed-arrival count over the
     same trailing window the compute function uses.  Sorted by missed
     desc."""
+    if tolerance_seconds is None:
+        tolerance_seconds = _tolerance_seconds()
     window_end   = date.today()
     window_start = window_end - timedelta(days=window_days)
 
