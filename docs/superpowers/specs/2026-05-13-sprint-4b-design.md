@@ -39,8 +39,8 @@ Two deliverables:
    equity overlay so MPO and city planners can see which high-need cells
    pay more.
 
-3 sequential weeks total — 1 week backend, 1 week frontend, 0.5 week
-polish + smoke.
+**2.5 weeks total** — 1 week backend, 1 week frontend, 0.5 week
+integration + smoke.
 
 ---
 
@@ -70,20 +70,20 @@ POST /fares/calculate
 }
 → 200 OK
 {
-  "total":    6.45,
+  "total":    6.70,
   "currency": "USD",
   "legs": [
     {
       "agency_id":       "AC",
-      "fare_product_id": "ac-adult",
-      "fare":            2.50,
-      "matched_by":      "route_id"
+      "fare_product_id": "442359",          // real Sprint 4a-loaded id
+      "fare":            2.75,
+      "matched_by":      "route_only"
     },
     {
       "agency_id":       "BA",
-      "fare_product_id": "BA-MCAR-EMBR",
+      "fare_product_id": "442709",          // BART OD-pair product id
       "fare":            3.95,
-      "matched_by":      "origin+destination"
+      "matched_by":      "od_only"
     }
   ]
 }
@@ -106,7 +106,18 @@ For each leg, walk a priority list of lookups against `fare_leg_rules`:
 ```
 
 The `matched_by` field surfaces which step in the priority list
-succeeded so planners can audit unexpected fares.
+succeeded so planners can audit unexpected fares. Closed set of values:
+
+```
+"route_and_od"      // step 1
+"route_only"        // step 2 or 4
+"od_only"           // step 3
+"agency_default"    // step 5
+"no_data"           // step 6
+```
+
+The UI switches on this to mark low-confidence fares (anything past
+`route_only` is structurally less certain).
 
 ### Edge cases
 
@@ -195,21 +206,30 @@ this corridor, and does it fall harder on high-equity-need cells?"
 
 ### Corridor selection — map-click model
 
-Same affordance as Planning → Workbench. Two new selection fields on
-`SelectionContext`:
+Same affordance as Planning → Workbench, but two pins instead of one.
+**Decision: add two new fields to `SelectionContext`**, do not overload
+`workbenchPoint`. Keeps each section's selection state independent so
+switching between Workbench and Fares doesn't clobber the other.
 
 ```ts
 faresOrigin:      LatLng | null;
 faresDestination: LatLng | null;
 ```
 
-(Or repurpose existing `workbenchPoint` via context-namespacing — TBD in
-implementation; cleaner to add new fields than overload one.)
+MapView click handler when `mapMode === "fares"`, cycling on every
+subsequent click:
 
-The MapView click handler when `mapMode === "fares"`:
-- Click 1: sets `faresOrigin`.
-- Click 2: sets `faresDestination`.
-- Click 3: replaces origin (cycle).
+```
+state 0: both null         → click sets faresOrigin       → state 1
+state 1: origin set        → click sets faresDestination  → state 2
+state 2: both set          → click replaces faresOrigin   → state 1
+                                  (faresDestination stays)
+```
+
+A "Clear pins" button in the page header resets to state 0 — matches
+the Workbench pattern. The cycle preserves the most-recent destination
+on origin-replace because planners often hold the destination constant
+while exploring origins.
 
 When both are set, the page samples 30 stop pairs between them and runs
 the calculator.
@@ -234,16 +254,36 @@ def sample_od_pairs(conn, origin: LatLng, dest: LatLng, n: int = 30) -> list:
 ```
 
 This is the riskiest piece. v1 simplifies it:
-- Sample 30 single-agency pairs (no transfers).
+- Sample up to 30 single-agency pairs (no transfers).
 - If the user clicks regions served by different single agencies, surface
-  a "no direct connection" notice.
+  a "no direct connection" notice (the response includes a
+  `notice: string | null` field for this).
 - Multi-agency multi-leg sampling defers to v2 once we know if it's used.
+- If fewer than `n` plausible pairs exist (rural clicks, sparse stop
+  coverage), return what we found and surface `n_sampled` in the
+  response so the UI can de-emphasise low-confidence summaries.
+  A floor of 5 pairs is required to render the histogram; below that
+  the page shows a "Not enough OD pairs to summarise — try a wider
+  region" empty state.
 
 ### Equity overlay
 
-For each sampled pair, look up the equity_score of the origin
-coverage_cell. Compute `equity_burden = median_fare × equity_score`.
-Rank cells by this score, show top 10 as the "high-burden cells" list.
+Aggregation is **per origin coverage_cell**, not per sampled pair —
+several pairs may share the same origin cell, so we'd be double-
+counting otherwise. Algorithm:
+
+1. For each sampled pair, find the nearest `coverage_cells` polygon
+   to the pair's origin stop (within 400 m; otherwise the pair is
+   excluded from the equity breakdown but counted in the overall
+   medians).
+2. Group sampled pairs by `cell_id`.
+3. Per cell, compute `median_fare_for_cell` (the median over its
+   pairs) and `burden = median_fare_for_cell × cell.equity_score`.
+4. Sort cells by `burden` descending; the top 10 land in the
+   `high_burden_cells` array of the response.
+
+Per-tier rollup (`by_equity_tier`) uses the same nearest-cell
+mapping, then groups by `equity_tier`.
 
 ### Frontend files
 
@@ -254,8 +294,8 @@ Rank cells by this score, show top 10 as the "high-burden cells" list.
 - `frontend/src/sections/Planning.tsx` — add `"fares"` to the SubKey
   union + sub-nav strip + route switch.
 - `frontend/src/context/SelectionContext.tsx` — new `faresOrigin` +
-  `faresDestination` fields (or shared `workbenchPoint` reuse — pick
-  during implementation).
+  `faresDestination` fields (decided above; do not overload
+  `workbenchPoint`).
 - `frontend/src/components/MapView.tsx` — `mapMode === "fares"` click
   handler + two-point pin source/layers + cursor crosshair.
 
@@ -297,7 +337,11 @@ POST /fares/sample-corridor
     "high_burden_cells": [
       { "cell_id": "...", "equity_score": 0.31, "median_fare": 6.40, "burden": 1.98 },
       ...
-    ]
+    ],
+    "notice": null
+    // notice ∈ { null, "single-agency only",
+    //           "no direct connection between regions",
+    //           "fewer than n pairs found" }
   }
 ```
 
@@ -379,14 +423,28 @@ Half-week — Integration + smoke
 
 ## Verification (end of Sprint 4b)
 
-1. `POST /fares/calculate` with a single AC leg → `total = 2.50`.
+1. `POST /fares/calculate` with a single AC leg → `total > 0`,
+   `fare` matches `fare_products.amount` for the matched product
+   (live data ships AC at `$2.75`; the test reads the expected value
+   from `fare_products` rather than hardcoding so it survives feed
+   updates).
 2. `POST /fares/calculate` with a BART OD leg → `total > 0` and
-   `fare_product_id` is the matching BART OD product.
+   `fare_product_id` is one of the seeded BART numeric ids
+   (`442709`-range), `matched_by` is `"od_only"`.
 3. `POST /fares/calculate` with two legs (AC + BART) → `total =
    ac_fare + ba_fare` (no transfer discount in v1).
-4. `POST /fares/sample-corridor` with Berkeley → Downtown SF returns
-   `n_sampled ≥ 20`, `median_fare` between $2 and $10.
-5. Planning → Fares renders, accepts two map clicks, shows
+4. `POST /fares/sample-corridor` with origin near Downtown Berkeley
+   (37.871, -122.272) and destination near Embarcadero
+   (37.793, -122.397) returns:
+     - `n_sampled ≥ 5`
+     - `median_fare ≥ $2.00`  and `≤ $10.00`
+     - `agencies` contains both `"AC"` and `"BA"` OR the `notice`
+       field indicates "no direct connection"
+     - at least one entry in `high_burden_cells` (Berkeley is in
+       populated coverage_cells with equity scores)
+5. Planning → Fares renders, accepts two map clicks, cycles correctly
+   on click 3 (replaces origin, keeps destination), shows
    fare-distribution histogram + median-by-equity-tier chart.
 6. "Top 10 high-burden cells" panel populated with at least 1 row.
-7. Backend ≥ 95 + 12 new (107). Frontend ≥ 88 + 6 new (94).
+7. "Clear pins" header button resets selection to state 0.
+8. Backend ≥ 95 + 12 new (107). Frontend ≥ 88 + 6 new (94).
