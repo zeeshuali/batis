@@ -213,6 +213,65 @@
 }
 .planning-workbench__sub + .planning-workbench__sub { margin-top: var(--space-4); }
 
+/* Transfer Reliability Matrix — Sprint 4a */
+.transfer-matrix { overflow-x: auto; }
+.transfer-matrix__grid {
+  border-collapse: separate;
+  border-spacing: 3px;
+  font-size: var(--text-xs);
+  margin-top: var(--space-2);
+}
+.transfer-matrix__corner {
+  font-weight: 400;
+  color: var(--color-fg-3);
+  text-align: right;
+  padding: 4px 8px;
+}
+.transfer-matrix__col,
+.transfer-matrix__row {
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 4px 6px;
+}
+.transfer-matrix__col { min-width: 56px; text-align: center; }
+.transfer-matrix__row { text-align: right; }
+.transfer-matrix__cell {
+  min-width: 56px;
+  padding: 4px;
+  border-radius: var(--radius-1);
+  cursor: pointer;
+  text-align: center;
+  color: rgba(15, 23, 42, 0.92);
+  font-variant-numeric: tabular-nums;
+  transition: outline 100ms;
+}
+.transfer-matrix__cell:hover { outline: 1px solid #fff; }
+.transfer-matrix__cell--active {
+  outline: 2px solid var(--color-accent, #3b82f6);
+  outline-offset: 1px;
+}
+.transfer-matrix__cell--diag {
+  cursor: default;
+  color: var(--color-fg-3);
+  background: var(--color-bg-2);
+}
+.transfer-matrix__cell--empty {
+  cursor: default;
+  color: var(--color-fg-3);
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(148,163,184,0.05), rgba(148,163,184,0.05) 4px,
+    transparent 4px, transparent 8px
+  );
+}
+.transfer-matrix__pct  { display: block; font-weight: 600; font-size: var(--text-sm); }
+.transfer-matrix__n    { display: block; font-size: 9px; opacity: 0.75; margin-top: 2px; }
+.transfer-matrix__drill {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
 /* Scenarios builder — editor form */
 .planning-scenarios__form {
   display: flex;

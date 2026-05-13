@@ -3,6 +3,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { useFilters } from "../../context/FilterContext";
 import { useAgencies } from "../../context/AgenciesContext";
 import { useAgencyRollups, type AgencyRollup } from "../../lib/useAgencyRollups";
+import { TransferReliabilityPanel } from "./TransferReliabilityPanel";
 import {
   KpiCard, DataList, Spinner, EmptyState, SectionError, ExportButton,
   type DataListItem,
@@ -139,17 +140,18 @@ export const Regional: React.FC = () => {
 
         <div className="planning-placeholder" style={{ borderRadius: "var(--radius-2)" }}>
           <div className="planning-placeholder__phase">Coming in a follow-up</div>
-          <h3 className="planning-placeholder__title" style={{ fontSize: "var(--text-md)" }}>Transfer-point reliability + county coverage</h3>
+          <h3 className="planning-placeholder__title" style={{ fontSize: "var(--text-md)" }}>County coverage + QoQ drift</h3>
           <p className="planning-placeholder__body" style={{ fontSize: "var(--text-sm)" }}>
-            Two MPO-shaped slices that need new backend before they land:
+            Two MPO-shaped slices still pending:
           </p>
           <ul className="planning-placeholder__features">
-            <li>Transfer points — stops shared by ≥2 agencies, ranked by daily transfer volume.</li>
             <li>County rollup — coverage_cells joined to county polygons for the RTP cycle.</li>
-            <li>Quarter-over-quarter OTP drift — needs historical rollup snapshots.</li>
+            <li>Quarter-over-quarter OTP drift — needs historical rollup snapshots from the 511.org archive.</li>
           </ul>
         </div>
       </div>
+
+      <TransferReliabilityPanel />
     </div>
   );
 };

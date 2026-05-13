@@ -217,6 +217,29 @@ def scenarios_delete(scenario_id: int, conn: Connection = Depends(get_conn)):
     return {"deleted": scenario_id}
 
 
+# ── Sprint 4a → Transfer reliability ────────────────────────────────────────
+
+@app.get("/transfers/reliability", dependencies=[Depends(api_key_dependency)])
+def transfers_reliability(
+    from_agency: Optional[str] = Query(default=None),
+    to_agency:   Optional[str] = Query(default=None),
+    min_observations: int = Query(default=0, ge=0),
+    limit: int = Query(default=500, ge=1, le=2000),
+    conn: Connection = Depends(get_conn),
+):
+    """Read the transfer reliability matrix. Filter by from_agency /
+    to_agency for a single matrix cell; omit both to get the flattened
+    matrix (sorted by observation count, then by worst success rate)."""
+    from app.services.transfer_reliability import get_transfer_reliability
+    return get_transfer_reliability(
+        conn,
+        from_agency=from_agency,
+        to_agency=to_agency,
+        min_observations=min_observations,
+        limit=limit,
+    )
+
+
 @app.get("/reliability/summary", dependencies=[Depends(api_key_dependency)])
 def reliability_summary(
     start_date: date,

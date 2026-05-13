@@ -498,3 +498,27 @@ BEGIN
 END
 $$;
 
+
+-- === Transfer Reliability Matrix (Sprint 4a, Feature 1) ===
+-- See backend/sql/migrations/004_transfer_reliability.sql for the rationale.
+CREATE TABLE IF NOT EXISTS transfer_reliability (
+    id                          bigserial PRIMARY KEY,
+    from_agency                 text NOT NULL,
+    to_agency                   text NOT NULL,
+    transfer_stop_id            text NOT NULL,
+    scheduled_transfer_minutes  numeric(8,2),
+    success_rate_pct            numeric(5,2),
+    median_gap_seconds          integer,
+    n_observations              integer NOT NULL DEFAULT 0,
+    computed_at                 timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT transfer_reliability_pair_distinct CHECK (from_agency <> to_agency),
+    CONSTRAINT transfer_reliability_unique UNIQUE (from_agency, to_agency, transfer_stop_id)
+);
+CREATE INDEX IF NOT EXISTS idx_transfer_reliability_pair
+    ON transfer_reliability (from_agency, to_agency);
+CREATE INDEX IF NOT EXISTS idx_transfer_reliability_observed
+    ON transfer_reliability (n_observations DESC)
+    WHERE n_observations > 0;
+CREATE INDEX IF NOT EXISTS idx_ops_trip_events_stop_arrival
+    ON ops_trip_events (stop_id, actual_arrival)
+    WHERE actual_arrival IS NOT NULL;
