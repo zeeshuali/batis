@@ -99,6 +99,22 @@ def main() -> None:
             current += timedelta(days=1)
         print(f"     Seeded {total_seeded} ops events across {(end_date - start_date).days + 1} days.")
 
+    print("1.5/13 Loading GTFS Fares v2 for monitored agencies...")
+    try:
+        from app.services.gtfs_fares_loader import load_fares_for_all_monitored
+        summary = load_fares_for_all_monitored(engine)
+        ok = sum(1 for v in summary.values() if isinstance(v, dict) and "_error" not in v
+                 and v.get("fare_products", 0) > 0)
+        skipped = sum(1 for v in summary.values() if isinstance(v, dict) and "_error" in v)
+        print(f"     Fares v2: {ok} ingested, {skipped} skipped (no feed or error).")
+        for aid, res in summary.items():
+            if isinstance(res, dict) and res.get("fare_products", 0) > 0:
+                fp = res.get("fare_products", 0); flr = res.get("fare_leg_rules", 0)
+                ftr = res.get("fare_transfer_rules", 0); fa = res.get("fare_areas", 0)
+                print(f"     [{aid}] {fp} products, {flr} leg-rules, {ftr} transfer-rules, {fa} areas")
+    except Exception as e:
+        print(f"     Fares v2 load failed (skipping): {e}")
+
     print("2/13 Rebuilding trip_stop_snapshots...")
     try:
         with engine.begin() as conn:

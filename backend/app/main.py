@@ -217,6 +217,31 @@ def scenarios_delete(scenario_id: int, conn: Connection = Depends(get_conn)):
     return {"deleted": scenario_id}
 
 
+# ── Sprint 4a → Fares v2 (debug-only endpoint for now) ──────────────────────
+
+@app.get("/fares/products", dependencies=[Depends(api_key_dependency)])
+def fares_products(
+    agency_id: Optional[str] = Query(default=None),
+    conn: Connection = Depends(get_conn),
+):
+    """List ingested fare products. Sprint 4a is ingest-only — this exists
+    so the live data can be inspected from the dashboard / curl without
+    diving into psql.  The Sprint 4b fare calculator will replace this."""
+    clauses = []
+    params: dict = {}
+    if agency_id:
+        clauses.append("agency_id = :agency_id")
+        params["agency_id"] = agency_id
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    rows = conn.execute(text(f"""
+        SELECT agency_id, fare_product_id, fare_product_name, amount, currency
+        FROM fare_products
+        {where}
+        ORDER BY agency_id, amount NULLS LAST, fare_product_id
+    """), params).mappings().all()
+    return [dict(r) for r in rows]
+
+
 # ── Sprint 4a → Transfer reliability ────────────────────────────────────────
 
 @app.get("/transfers/reliability", dependencies=[Depends(api_key_dependency)])

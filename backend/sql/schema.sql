@@ -522,3 +522,53 @@ CREATE INDEX IF NOT EXISTS idx_transfer_reliability_observed
 CREATE INDEX IF NOT EXISTS idx_ops_trip_events_stop_arrival
     ON ops_trip_events (stop_id, actual_arrival)
     WHERE actual_arrival IS NOT NULL;
+
+-- === GTFS Fares v2 ingest (Sprint 4a, Feature 2) ===
+-- See backend/sql/migrations/005_fares_v2.sql for the rationale.
+ALTER TABLE agencies
+    ADD COLUMN IF NOT EXISTS has_fares_v2 boolean NOT NULL DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS fare_products (
+    agency_id           text NOT NULL,
+    fare_product_id     text NOT NULL,
+    fare_product_name   text,
+    amount              numeric(8,2),
+    currency            text NOT NULL DEFAULT 'USD',
+    PRIMARY KEY (agency_id, fare_product_id)
+);
+CREATE INDEX IF NOT EXISTS idx_fare_products_agency ON fare_products (agency_id);
+
+CREATE TABLE IF NOT EXISTS fare_leg_rules (
+    id                  bigserial PRIMARY KEY,
+    agency_id           text NOT NULL,
+    leg_group_id        text,
+    network_id          text,
+    from_area_id        text,
+    to_area_id          text,
+    fare_product_id     text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_fare_leg_rules_agency ON fare_leg_rules (agency_id);
+CREATE INDEX IF NOT EXISTS idx_fare_leg_rules_lookup
+    ON fare_leg_rules (agency_id, network_id, from_area_id, to_area_id);
+
+CREATE TABLE IF NOT EXISTS fare_transfer_rules (
+    id                  bigserial PRIMARY KEY,
+    agency_id           text NOT NULL,
+    from_leg_group_id   text,
+    to_leg_group_id     text,
+    transfer_count      integer,
+    duration_limit      integer,
+    fare_product_id     text,
+    amount              numeric(8,2)
+);
+CREATE INDEX IF NOT EXISTS idx_fare_transfer_rules_agency ON fare_transfer_rules (agency_id);
+CREATE INDEX IF NOT EXISTS idx_fare_transfer_rules_from
+    ON fare_transfer_rules (agency_id, from_leg_group_id);
+
+CREATE TABLE IF NOT EXISTS fare_areas (
+    agency_id           text NOT NULL,
+    area_id             text NOT NULL,
+    area_name           text,
+    PRIMARY KEY (agency_id, area_id)
+);
+CREATE INDEX IF NOT EXISTS idx_fare_areas_agency ON fare_areas (agency_id);
