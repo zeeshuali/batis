@@ -106,14 +106,17 @@ def test_gtfs_pks_are_composite(db_conn, table, expected_cols):
     must have agency_id as the first column of its PK. Without this,
     cross-agency ID collisions silently overwrite one agency's data
     (e.g. SF Muni and Santa Clara VTA both using route_id '31')."""
-    actual = db_conn.execute(text("""
+    # Table names come from the parametrize list above, not user input —
+    # safe to interpolate into the SQL string. (`:rel::regclass` doesn't
+    # work because Postgres needs the cast target known at parse time.)
+    actual = db_conn.execute(text(f"""
         SELECT a.attname
           FROM pg_constraint c
           JOIN pg_attribute a
             ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
-         WHERE c.conrelid = :rel::regclass AND c.contype = 'p'
+         WHERE c.conrelid = '{table}'::regclass AND c.contype = 'p'
          ORDER BY array_position(c.conkey, a.attnum)
-    """), {"rel": table}).scalars().all()
+    """)).scalars().all()
     assert actual == expected_cols, (
         f"{table} PK = {actual}, expected {expected_cols} — migration 009 "
         f"not applied (or schema.sql drifted)."

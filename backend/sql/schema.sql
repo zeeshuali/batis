@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS gtfs_stops (
 );
 
 -- Composite unique on (agency_id, stop_id) is the target of the loader's
--- ON CONFLICT clause; it also guards against future cross-agency stop_id
+-- ON CONFLICT clause and guards against future cross-agency stop_id
 -- collisions. Single-column PK on stop_id stays because stop_safety_scores
 -- and stop_features FK to it.
 CREATE UNIQUE INDEX IF NOT EXISTS gtfs_stops_agency_stop_uniq

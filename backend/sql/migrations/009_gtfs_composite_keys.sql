@@ -88,17 +88,27 @@ CREATE UNIQUE INDEX IF NOT EXISTS gtfs_stops_agency_stop_uniq
   ON gtfs_stops (agency_id, stop_id);
 
 -- ── 4. Re-add FKs with composite references where applicable ────────────────
+-- The two FKs that depend on the CORRUPTED data (gtfs_trips → gtfs_routes
+-- and gtfs_stop_times → gtfs_trips) are added with NOT VALID. This enforces
+-- the FK for NEW rows but skips revalidating the 36,765 trips that
+-- currently reference clobbered routes. Phase 4 Task 11 (ETL re-run) will
+-- restore the missing rows; Phase 4 Task 11 Step 4 will then run:
+--   ALTER TABLE gtfs_trips      VALIDATE CONSTRAINT gtfs_trips_route_id_fkey;
+--   ALTER TABLE gtfs_stop_times VALIDATE CONSTRAINT gtfs_stop_times_trip_id_fkey;
+-- to retroactively enforce the constraints once the data is clean.
 ALTER TABLE gtfs_trips
   ADD CONSTRAINT gtfs_trips_route_id_fkey
   FOREIGN KEY (agency_id, route_id)
-  REFERENCES gtfs_routes (agency_id, route_id);
+  REFERENCES gtfs_routes (agency_id, route_id) NOT VALID;
 
 ALTER TABLE gtfs_stop_times
   ADD CONSTRAINT gtfs_stop_times_trip_id_fkey
   FOREIGN KEY (agency_id, trip_id)
-  REFERENCES gtfs_trips (agency_id, trip_id);
+  REFERENCES gtfs_trips (agency_id, trip_id) NOT VALID;
 
--- stop_id FKs continue to reference single-column gtfs_stops.stop_id.
+-- stop_id FKs continue to reference single-column gtfs_stops.stop_id and
+-- are validated normally — 0 cross-agency stop_id collisions today, so no
+-- orphans exist.
 ALTER TABLE gtfs_stop_times
   ADD CONSTRAINT gtfs_stop_times_stop_id_fkey
   FOREIGN KEY (stop_id) REFERENCES gtfs_stops (stop_id);
