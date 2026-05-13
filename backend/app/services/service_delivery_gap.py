@@ -83,3 +83,57 @@ def compute_service_delivery_gap_for_all_cells(
     """), {"tol": tolerance_seconds, "ws": window_start,
            "we": window_end, "minN": min_scheduled})
     return rows.rowcount
+
+
+def get_service_delivery_gap_features(
+    conn: Connection,
+    *,
+    min_population: int = 0,
+    limit: int = 2000,
+) -> list[dict[str, Any]]:
+    """Read service_delivery_gap joined with coverage_cells.geom +
+    equity columns, return GeoJSON-ready Feature dicts.
+
+    equity_adjusted_gap = gap_pct * equity_score, used by the UI as
+    the secondary sort key for the top-10 list.
+    """
+    rows = conn.execute(text("""
+        SELECT sdg.cell_id,
+               ST_AsGeoJSON(cc.geom)::json AS geometry,
+               sdg.scheduled_arrivals,
+               sdg.missed_arrivals,
+               sdg.gap_pct,
+               sdg.window_start,
+               sdg.window_end,
+               cc.equity_score,
+               cc.population
+          FROM service_delivery_gap sdg
+          JOIN coverage_cells     cc USING (cell_id)
+         WHERE COALESCE(cc.population, 0) >= :min_pop
+         ORDER BY sdg.gap_pct DESC, sdg.cell_id
+         LIMIT :lim
+    """), {"min_pop": min_population, "lim": limit}).mappings().all()
+
+    features: list[dict[str, Any]] = []
+    for r in rows:
+        gap_pct      = float(r["gap_pct"])
+        equity       = float(r["equity_score"]) if r["equity_score"] is not None else None
+        adjusted_gap = gap_pct * equity if equity is not None else None
+
+        features.append({
+            "type":     "Feature",
+            "geometry": r["geometry"],
+            "properties": {
+                "cell_id":             r["cell_id"],
+                "gap_pct":             gap_pct,
+                "gap_tier":            _gap_tier(gap_pct),
+                "scheduled_arrivals":  r["scheduled_arrivals"],
+                "missed_arrivals":     r["missed_arrivals"],
+                "window_start":        r["window_start"].isoformat(),
+                "window_end":          r["window_end"].isoformat(),
+                "equity_score":        equity,
+                "equity_adjusted_gap": adjusted_gap,
+                "population":          r["population"],
+            },
+        })
+    return features

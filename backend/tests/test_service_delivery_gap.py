@@ -1,7 +1,14 @@
 """Tests for backend/app/services/service_delivery_gap.py."""
-import pytest
+from datetime import date, datetime, timedelta, timezone
 
-from app.services.service_delivery_gap import _gap_tier
+import pytest
+from sqlalchemy import text
+
+from app.services.service_delivery_gap import (
+    _gap_tier,
+    compute_service_delivery_gap_for_all_cells,
+    get_service_delivery_gap_features,
+)
 
 
 @pytest.mark.parametrize("pct,expected", [
@@ -17,14 +24,6 @@ from app.services.service_delivery_gap import _gap_tier
 ])
 def test_gap_tier_bands(pct, expected):
     assert _gap_tier(pct) == expected
-
-
-from datetime import date, datetime, timedelta, timezone
-from sqlalchemy import text
-
-from app.services.service_delivery_gap import (
-    compute_service_delivery_gap_for_all_cells,
-)
 
 
 @pytest.fixture
@@ -161,3 +160,36 @@ def test_compute_skips_below_min_scheduled(db_conn, gap_fixture_cells):
         "WHERE cell_id IN ('test-A','test-B','test-C')"
     )).all()
     assert rows == []
+
+
+def test_get_features_returns_geojson_shape(db_conn, gap_fixture_cells):
+    compute_service_delivery_gap_for_all_cells(db_conn, min_scheduled=50)
+    feats = get_service_delivery_gap_features(db_conn, limit=5000)
+
+    test_feats = [f for f in feats if f["properties"]["cell_id"].startswith("test-")]
+    assert len(test_feats) == 2
+    f = next(f for f in test_feats if f["properties"]["cell_id"] == "test-A")
+    p = f["properties"]
+    assert f["type"] == "Feature"
+    assert f["geometry"]["type"] == "Polygon"
+    assert p["gap_pct"] == 7.0
+    assert p["gap_tier"] == "high"
+    assert p["scheduled_arrivals"] == 100
+    assert p["missed_arrivals"] == 7
+    assert p["equity_score"] == 0.5
+    assert p["population"] == 1000
+    assert p["equity_adjusted_gap"] == pytest.approx(7.0 * 0.5, rel=1e-3)
+
+
+def test_get_features_min_population_filter(db_conn, gap_fixture_cells):
+    compute_service_delivery_gap_for_all_cells(db_conn, min_scheduled=50)
+    # Set test-B population to 0 so the filter excludes it
+    db_conn.execute(text(
+        "UPDATE coverage_cells SET population = 0 WHERE cell_id = 'test-B'"
+    ))
+    db_conn.commit()
+    feats = get_service_delivery_gap_features(db_conn, min_population=1, limit=5000)
+    test_ids = {f["properties"]["cell_id"] for f in feats
+                if f["properties"]["cell_id"].startswith("test-")}
+    assert "test-A" in test_ids
+    assert "test-B" not in test_ids
