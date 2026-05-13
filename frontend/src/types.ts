@@ -31,4 +31,5 @@ export type Section =
   | "workbench"
   | "scenarios"
   | "fares"
-  | "fare-burden";
+  | "fare-burden"
+  | "service-delivery-gap";

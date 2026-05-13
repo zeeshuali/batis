@@ -40,7 +40,7 @@ interface LegendItem {
 
 // ─── Layer / source constants ─────────────────────────────────────────────────
 
-const SOURCES = ["reliability-stops", "safety-stops", "crowding-stops", "demand-stops", "coverage-cells", "deserts", "equity-cells", "selected-route", "rt-vehicles", "planner-origin", "planner-dest", "traffic-events", "work-zones", "affected-routes", "workbench-point", "scenario-stops", "fares-origin", "fares-dest", "fare-burden-cells", "fare-burden-anchors"] as const;
+const SOURCES = ["reliability-stops", "safety-stops", "crowding-stops", "demand-stops", "coverage-cells", "deserts", "equity-cells", "selected-route", "rt-vehicles", "planner-origin", "planner-dest", "traffic-events", "work-zones", "affected-routes", "workbench-point", "scenario-stops", "fares-origin", "fares-dest", "fare-burden-cells", "fare-burden-anchors", "service-delivery-gap-cells"] as const;
 
 const SECTION_LAYERS: Record<Section, string[]> = {
   // reliability-heat is included here so toggleLayers hides it when leaving these sections.
@@ -73,6 +73,12 @@ const SECTION_LAYERS: Record<Section, string[]> = {
   // diamond markers.  Coverage backdrop suppressed so the burden
   // colours read clearly.
   "fare-burden": ["fare-burden-fill", "fare-burden-outline", "fare-burden-anchors-circle"],
+  // Service Delivery Gap: choropleth fill keyed on gap_tier.
+  // Layers added in Task 12.
+  "service-delivery-gap": [
+    "service-delivery-gap-fill",
+    "service-delivery-gap-outline",
+  ],
 };
 
 const ALL_LAYERS = Object.values(SECTION_LAYERS).flat();
@@ -126,6 +132,17 @@ const COVERAGE_COLOR: mapboxgl.Expression = [
 // why — see Planning → Fare Burden empty-state copy.
 const FARE_BURDEN_COLOR: mapboxgl.Expression = [
   "match", ["coalesce", ["get", "burden_tier"], "none"],
+  "very_high", "#dc2626",
+  "high",      "#f97316",
+  "moderate",  "#facc15",
+  "low",       "#22c55e",
+  /* else */   "#475569",
+];
+
+// Service Delivery Gap choropleth: discrete 4-tier match on gap_tier.
+// Cells with NULL gap_tier (no observation data yet) get muted grey.
+const GAP_COLOR: mapboxgl.Expression = [
+  "match", ["coalesce", ["get", "gap_tier"], "none"],
   "very_high", "#dc2626",
   "high",      "#f97316",
   "moderate",  "#facc15",
@@ -265,6 +282,15 @@ const LEGENDS: Record<Section, { title: string; items: LegendItem[] }> = {
       { color: "#22c55e", label: "Low (<5%)",                  shape: "square" },
       { color: "#475569", label: "Unreachable / no data",      shape: "square" },
       { color: "#3b82f6", label: "Anchor destinations" },
+    ],
+  },
+  "service-delivery-gap": {
+    title: "Service Delivery Gap",
+    items: [
+      { color: "#dc2626", label: "Very high (≥10%)", shape: "square" },
+      { color: "#f97316", label: "High (5–10%)",     shape: "square" },
+      { color: "#facc15", label: "Moderate (2–5%)",  shape: "square" },
+      { color: "#22c55e", label: "Low (<2%)",        shape: "square" },
     ],
   },
 };
@@ -418,7 +444,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   // Read filter + selection from contexts. Local aliases below keep the
   // rest of the ~1,100-line component compiling unchanged.
   const { filters } = useFilters();
-  const { selection, setStopId, setPlannerOrigin, setPlannerDest, resetPlanner, setWorkbenchPoint, addScenarioStop, setFaresPin } = useSelection();
+  const { selection, setStopId, setPlannerOrigin, setPlannerDest, resetPlanner, setWorkbenchPoint, addScenarioStop, setFaresPin, setServiceGapDrillCell } = useSelection();
   const { agencies } = useAgencies();
 
   const startDate = filters.startDate;
@@ -463,6 +489,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   const onWorkbenchMapClickRef = useRef(onWorkbenchMapClick);
   const onScenarioMapClickRef  = useRef(onScenarioMapClick);
   const onFaresMapClickRef     = useRef(onFaresMapClick);
+  const setServiceGapDrillCellRef = useRef<((cellId: string | null) => void) | null>(null);
   const isFirstRenderRef       = useRef(true);
 
   // Keep refs in sync with props/state
@@ -475,6 +502,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   useEffect(() => { onWorkbenchMapClickRef.current = onWorkbenchMapClick; }, [onWorkbenchMapClick]);
   useEffect(() => { onScenarioMapClickRef.current  = onScenarioMapClick;  }, [onScenarioMapClick]);
   useEffect(() => { onFaresMapClickRef.current     = onFaresMapClick;     }, [onFaresMapClick]);
+  useEffect(() => { setServiceGapDrillCellRef.current = setServiceGapDrillCell; }, [setServiceGapDrillCell]);
 
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState<string | null>(null);
@@ -665,6 +693,14 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
             setIsEmpty(res.data.features.length === 0);
             break;
           }
+          case "service-delivery-gap": {
+            const res = await axios.get<GeoJSON.FeatureCollection>(
+              `${API_BASE}/equity/service-delivery-gap`, { headers: h }
+            );
+            applyGeoJSON("service-delivery-gap-cells", res.data);
+            setIsEmpty(res.data.features.length === 0);
+            break;
+          }
         }
       } catch (err: unknown) {
         if (axios.isAxiosError(err)) {
@@ -847,6 +883,24 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
         "circle-stroke-color": "#fff",
         "circle-stroke-width": 3,
         "circle-opacity":      0.95,
+      },
+    });
+
+    // ── Service Delivery Gap choropleth (Sprint 5b) ────────────────────────
+    map.addLayer({
+      id: "service-delivery-gap-fill", type: "fill", source: "service-delivery-gap-cells",
+      layout: { visibility: "none" },
+      paint: {
+        "fill-color":   GAP_COLOR,
+        "fill-opacity": 0.55,
+      },
+    });
+    map.addLayer({
+      id: "service-delivery-gap-outline", type: "line", source: "service-delivery-gap-cells",
+      layout: { visibility: "none" },
+      paint: {
+        "line-color": "rgba(148,163,184,0.18)",
+        "line-width": 0.5,
       },
     });
 
@@ -1107,6 +1161,21 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
         if (props?.stop_id) onStopClickRef.current(String(props.stop_id));
       });
     }
+
+    // ── Service-delivery-gap cell click ────────────────────────────────────
+    map.on("click", "service-delivery-gap-fill", (e) => {
+      const f = e.features?.[0];
+      const cellId = f?.properties?.cell_id;
+      if (typeof cellId === "string" && setServiceGapDrillCellRef.current) {
+        setServiceGapDrillCellRef.current(cellId);
+      }
+    });
+    map.on("mouseenter", "service-delivery-gap-fill", () => {
+      map.getCanvas().style.cursor = "pointer";
+    });
+    map.on("mouseleave", "service-delivery-gap-fill", () => {
+      map.getCanvas().style.cursor = "";
+    });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Initialise map ──────────────────────────────────────────────────────────

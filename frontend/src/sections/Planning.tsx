@@ -7,10 +7,13 @@ import { Workbench }   from "./planning/Workbench";
 import { Scenarios }   from "./planning/Scenarios";
 import { Fares }       from "./planning/Fares";
 import { FareBurden }  from "./planning/FareBurden";
+import { ServiceDeliveryGap } from "./planning/ServiceDeliveryGap";
 import "./sections.css";
 import "./planning/planning.css";
 
-type SubKey = "diagnostics" | "coverage" | "regional" | "workbench" | "scenarios" | "fares" | "fare-burden";
+type SubKey = "diagnostics" | "coverage" | "regional" | "workbench"
+            | "scenarios"   | "fares"    | "fare-burden"
+            | "service-delivery-gap";
 const SUBS: { key: SubKey; label: string; persona: string }[] = [
   { key: "diagnostics", label: "Diagnostics", persona: "Agency service planner" },
   { key: "coverage",    label: "Coverage",    persona: "City / municipal planner" },
@@ -19,6 +22,8 @@ const SUBS: { key: SubKey; label: string; persona: string }[] = [
   { key: "scenarios",   label: "Scenarios",   persona: "What-if simulation" },
   { key: "fares",       label: "Fares",       persona: "Corridor fare burden + equity overlay" },
   { key: "fare-burden", label: "Fare Burden", persona: "Regional fare-as-%-of-income map" },
+  { key: "service-delivery-gap", label: "Delivery Gap",
+    persona: "Scheduled vs. observed service per cell" },
 ];
 
 const DEFAULT_SUB: SubKey = "diagnostics";
@@ -61,6 +66,7 @@ export const Planning: React.FC = () => {
         {active === "scenarios"   && <Scenarios />}
         {active === "fares"       && <Fares />}
         {active === "fare-burden" && <FareBurden />}
+        {active === "service-delivery-gap" && <ServiceDeliveryGap />}
       </div>
     </div>
   );

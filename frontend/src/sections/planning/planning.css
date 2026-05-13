@@ -520,3 +520,33 @@
 }
 .planning-scenarios__list-name { color: var(--color-fg-0); font-size: var(--text-sm); }
 .planning-scenarios__list-meta { color: var(--color-fg-3); font-size: var(--text-xs); }
+
+/* ── Service Delivery Gap drawer (Sprint 5b) ─────────────────────────────── */
+.planning-gap__drawer {
+  position: fixed;
+  top: 80px;
+  right: 16px;
+  width: 380px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--color-bg-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  padding: var(--space-3);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.planning-gap__drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.planning-gap__drawer-title    { font-weight: 600; color: var(--color-fg-0); }
+.planning-gap__drawer-subtitle { font-size: var(--text-xs); color: var(--color-fg-3); }
+.planning-gap__drawer-error    { color: var(--color-danger, #dc2626); font-size: var(--text-sm); }
+.planning-gap__drawer-empty    { color: var(--color-fg-3); font-size: var(--text-sm); }

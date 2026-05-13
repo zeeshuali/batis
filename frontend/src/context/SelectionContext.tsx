@@ -20,6 +20,7 @@ export interface Selection {
    *  origins). */
   faresOrigin:      LatLng | null;
   faresDestination: LatLng | null;
+  serviceGapDrillCell: string | null;
 }
 
 interface SelectionApi {
@@ -38,6 +39,7 @@ interface SelectionApi {
    *  to state 0. */
   setFaresPin:        (p: LatLng) => void;
   clearFaresPins:     () => void;
+  setServiceGapDrillCell: (cellId: string | null) => void;
   resetPlanner:       () => void;
   clear: () => void;
 }
@@ -54,6 +56,7 @@ export const SelectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [scenarioStops,  setScenarioStopsState]  = useState<LatLng[]>([]);
   const [faresOrigin,      setFaresOriginState]      = useState<LatLng | null>(null);
   const [faresDestination, setFaresDestinationState] = useState<LatLng | null>(null);
+  const [serviceGapDrillCell, setServiceGapDrillCellState] = useState<string | null>(null);
 
   const setRouteId        = useCallback((id: string | null) => setRouteIdState(id), []);
   const setStopId         = useCallback((id: string | null) => setStopIdState(id), []);
@@ -96,6 +99,9 @@ export const SelectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setFaresOriginState(null);
     setFaresDestinationState(null);
   }, []);
+  const setServiceGapDrillCell = useCallback((cellId: string | null) => {
+    setServiceGapDrillCellState(cellId);
+  }, []);
   const resetPlanner = useCallback(() => {
     setPlannerOriginState(null);
     setPlannerDestState(null);
@@ -114,7 +120,7 @@ export const SelectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const value = useMemo<SelectionApi>(
     () => ({
-      selection: { routeId, stopId, hoveredStopId, plannerOrigin, plannerDest, workbenchPoint, scenarioStops, faresOrigin, faresDestination },
+      selection: { routeId, stopId, hoveredStopId, plannerOrigin, plannerDest, workbenchPoint, scenarioStops, faresOrigin, faresDestination, serviceGapDrillCell },
       setRouteId,
       setStopId,
       setHoveredStopId,
@@ -126,10 +132,11 @@ export const SelectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setScenarioStops,
       setFaresPin,
       clearFaresPins,
+      setServiceGapDrillCell,
       resetPlanner,
       clear,
     }),
-    [routeId, stopId, hoveredStopId, plannerOrigin, plannerDest, workbenchPoint, scenarioStops, faresOrigin, faresDestination, setRouteId, setStopId, setHoveredStopId, setPlannerOrigin, setPlannerDest, setWorkbenchPoint, addScenarioStop, removeScenarioStop, setScenarioStops, setFaresPin, clearFaresPins, resetPlanner, clear]
+    [routeId, stopId, hoveredStopId, plannerOrigin, plannerDest, workbenchPoint, scenarioStops, faresOrigin, faresDestination, serviceGapDrillCell, setRouteId, setStopId, setHoveredStopId, setPlannerOrigin, setPlannerDest, setWorkbenchPoint, addScenarioStop, removeScenarioStop, setScenarioStops, setFaresPin, clearFaresPins, setServiceGapDrillCell, resetPlanner, clear]
   );
 
   return <SelectionContext.Provider value={value}>{children}</SelectionContext.Provider>;
