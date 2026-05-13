@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     # Backend API key (X-API-Key header for protected endpoints)
     backend_api_key: str | None = None
 
+    # Census API key — required by api.census.gov as of ~2024.  Get one
+    # free at https://api.census.gov/data/key_signup.html.  Without it the
+    # equity loader can't refresh median_household_income (Sprint 5a) or
+    # the existing equity_score (Sprint 0).
+    census_api_key: str | None = None
+
     # AI / RAG
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"

@@ -217,6 +217,42 @@ def scenarios_delete(scenario_id: int, conn: Connection = Depends(get_conn)):
     return {"deleted": scenario_id}
 
 
+# ── Sprint 5a → Fare Burden Mapper ──────────────────────────────────────────
+
+@app.get("/equity/fare-burden", dependencies=[Depends(api_key_dependency)])
+def equity_fare_burden(
+    anchor_weights: Optional[str] = Query(default=None,
+        description="Comma-separated key:weight pairs e.g. 'sf:1,oakland:1,sfo:0.5'"),
+    min_population: int = Query(default=0, ge=0),
+    limit:          int = Query(default=2000, ge=1, le=5000),
+    conn: Connection = Depends(get_conn),
+):
+    """GeoJSON FeatureCollection of coverage_cells with per-cell fare
+    burden.  Source: `fare_burden` table (nightly recompute); burden_pct
+    is computed at query time from the cached per-anchor fares and the
+    cell's median_household_income so the UI can re-weight anchors
+    without re-running the heavy job."""
+    from app.services.fare_burden import get_fare_burden_features
+    weights: Optional[dict] = None
+    if anchor_weights:
+        weights = {}
+        for pair in anchor_weights.split(","):
+            if ":" not in pair:
+                continue
+            k, v = pair.split(":", 1)
+            try:
+                weights[k.strip()] = float(v.strip())
+            except ValueError:
+                continue
+    features = get_fare_burden_features(
+        conn,
+        anchor_weights=weights,
+        min_population=min_population,
+        limit=limit,
+    )
+    return {"type": "FeatureCollection", "features": features}
+
+
 # ── Sprint 4a → Fares v2 (debug-only endpoint for now) ──────────────────────
 
 from app.services.fare_calculator import FareRequest as _FareRequest, calculate_fare as _calculate_fare

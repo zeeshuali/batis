@@ -42,7 +42,14 @@ _COUNTIES = [
 #   B08141_001E = total HH in vehicle-availability universe
 #   B08141_002E = no-vehicle HHs
 #   B01001_001E = total population
-_VARIABLES = ["B17001_001E", "B17001_002E", "B08141_001E", "B08141_002E", "B01001_001E"]
+#   B19013_001E = median household income (past 12 months, dollars)
+_VARIABLES = ["B17001_001E", "B17001_002E", "B08141_001E", "B08141_002E",
+              "B01001_001E", "B19013_001E"]
+
+# ACS uses large negative sentinels (e.g. -666666666) for tracts where
+# the estimate is suppressed or unavailable.  Filter anything well below
+# zero out of the aggregation.
+_ACS_SUPPRESSED_THRESHOLD = -1000
 
 
 def _fetch_census(county_fips: str) -> list[dict]:
@@ -53,6 +60,13 @@ def _fetch_census(county_fips: str) -> list[dict]:
         "for": "tract:*",
         "in":  f"state:{state} county:{county}",
     }
+    # As of ~2024 api.census.gov requires a key on every request.  Free
+    # signup at https://api.census.gov/data/key_signup.html.  Without it
+    # the API 302-redirects to a missing-key page (no JSON body).
+    from app.core.config import get_settings
+    key = get_settings().census_api_key
+    if key:
+        params["key"] = key
     try:
         resp = requests.get(_CENSUS_API, params=params, timeout=30, verify=certifi.where())
         resp.raise_for_status()
@@ -67,14 +81,25 @@ def _fetch_census(county_fips: str) -> list[dict]:
 
 
 def _aggregate_county(tracts: list[dict]) -> dict:
-    """Sum Census tract rows to county-level metrics."""
+    """Sum Census tract rows to county-level metrics + median household income.
+
+    median_household_income is computed as the median across tract-level
+    medians (B19013_001E). Tract medians where ACS suppressed the
+    estimate (sentinel value far below zero) are excluded. A
+    population-weighted mean would be more precise but requires joining
+    against B19013 with B01001 at the tract level — deferred refinement.
+    """
     total_pop = poverty_sum = total_hh = no_veh_sum = 0
+    tract_incomes: list[int] = []
     for t in tracts:
         try:
             total_pop   += max(0, int(t.get("B17001_001E") or 0))
             poverty_sum += max(0, int(t.get("B17001_002E") or 0))
             total_hh    += max(0, int(t.get("B08141_001E") or 0))
             no_veh_sum  += max(0, int(t.get("B08141_002E") or 0))
+            inc = int(t.get("B19013_001E") or 0)
+            if inc > _ACS_SUPPRESSED_THRESHOLD and inc > 0:
+                tract_incomes.append(inc)
         except (ValueError, TypeError):
             continue
 
@@ -82,11 +107,17 @@ def _aggregate_county(tracts: list[dict]) -> dict:
     no_veh_pct   = no_veh_sum  / total_hh  if total_hh  > 0 else 0.0
     equity_score = (poverty_pct + no_veh_pct) / 2.0
 
+    median_income = 0
+    if tract_incomes:
+        import statistics
+        median_income = int(statistics.median(tract_incomes))
+
     return {
-        "total_pop":    total_pop,
-        "poverty_pct":  poverty_pct,
-        "no_veh_pct":   no_veh_pct,
-        "equity_score": equity_score,
+        "total_pop":                 total_pop,
+        "poverty_pct":                poverty_pct,
+        "no_veh_pct":                 no_veh_pct,
+        "equity_score":               equity_score,
+        "median_household_income":    median_income,
     }
 
 
@@ -112,7 +143,8 @@ def populate_equity_columns(conn: Optional[Connection] = None) -> None:
             print(
                 f"  [equity] {name}: pop={m['total_pop']:,} "
                 f"poverty={m['poverty_pct']:.1%} no_veh={m['no_veh_pct']:.1%} "
-                f"score={m['equity_score']:.3f}"
+                f"score={m['equity_score']:.3f} "
+                f"median_income=${m['median_household_income']:,}"
             )
 
     fetched = [cd for cd in county_data if cd[6]["total_pop"] > 0]
@@ -152,24 +184,26 @@ def populate_equity_columns(conn: Optional[Connection] = None) -> None:
 
         conn.execute(text("""
             UPDATE coverage_cells SET
-                equity_score          = :equity_score,
-                population            = :per_cell_pop,
-                low_income_population = ROUND(:per_cell_pop * :poverty_pct)::int,
-                no_car_households     = ROUND(:per_cell_pop * :no_veh_pct)::int
+                equity_score             = :equity_score,
+                population               = :per_cell_pop,
+                low_income_population    = ROUND(:per_cell_pop * :poverty_pct)::int,
+                no_car_households        = ROUND(:per_cell_pop * :no_veh_pct)::int,
+                median_household_income  = NULLIF(:median_income, 0)
             WHERE equity_score IS NULL
               AND ST_Within(
                     ST_Centroid(geom),
                     ST_MakeEnvelope(:min_lon, :min_lat, :max_lon, :max_lat, 4326)
                   )
         """), {
-            "equity_score":  m["equity_score"],
-            "per_cell_pop":  per_cell_pop,
-            "poverty_pct":   m["poverty_pct"],
-            "no_veh_pct":    m["no_veh_pct"],
-            "min_lon":       min_lon,
-            "min_lat":       min_lat,
-            "max_lon":       max_lon,
-            "max_lat":       max_lat,
+            "equity_score":   m["equity_score"],
+            "per_cell_pop":   per_cell_pop,
+            "poverty_pct":    m["poverty_pct"],
+            "no_veh_pct":     m["no_veh_pct"],
+            "median_income":  m["median_household_income"],
+            "min_lon":        min_lon,
+            "min_lat":        min_lat,
+            "max_lon":        max_lon,
+            "max_lat":        max_lat,
         })
 
         print(f"  [equity] {name}: {cell_count} cells → equity_score={m['equity_score']:.3f}")

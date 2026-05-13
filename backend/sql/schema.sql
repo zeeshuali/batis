@@ -572,3 +572,22 @@ CREATE TABLE IF NOT EXISTS fare_areas (
     PRIMARY KEY (agency_id, area_id)
 );
 CREATE INDEX IF NOT EXISTS idx_fare_areas_agency ON fare_areas (agency_id);
+
+-- === Fare Burden Mapper (Sprint 5a) ===
+-- See backend/sql/migrations/006_fare_burden.sql for rationale.
+ALTER TABLE coverage_cells
+    ADD COLUMN IF NOT EXISTS median_household_income integer;
+
+CREATE TABLE IF NOT EXISTS fare_burden (
+    cell_id                    text PRIMARY KEY,
+    median_fare_to_sf          numeric(8,2),
+    median_fare_to_oakland     numeric(8,2),
+    median_fare_to_sfo         numeric(8,2),
+    reachable_anchor_count     integer NOT NULL DEFAULT 0,
+    population                 integer,
+    median_household_income    integer,
+    computed_at                timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_fare_burden_reachable
+    ON fare_burden (reachable_anchor_count)
+    WHERE reachable_anchor_count > 0;
