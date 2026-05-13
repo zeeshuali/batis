@@ -59,7 +59,7 @@ def main() -> None:
 
     # Step 0: hydrate the agencies catalog before anything else, so the
     # downstream GTFS loader can read `agencies WHERE monitored=true`.
-    print("0/15 Syncing agency catalog from 511.org...")
+    print("0/20 Syncing agency catalog from 511.org...")
     try:
         from app.services.five11_operators import run_operators_sync
         run_operators_sync(engine)
@@ -67,7 +67,7 @@ def main() -> None:
     except Exception as e:
         print(f"    Agency sync failed (continuing — GTFS loader will fall back): {e}")
 
-    print("1/15 Loading GTFS static feeds...")
+    print("1/20 Loading GTFS static feeds...")
     try:
         from app.core.config import get_settings as _gs
         if _gs().five11_api_key:
@@ -105,7 +105,7 @@ def main() -> None:
             current += timedelta(days=1)
         print(f"     Seeded {total_seeded} ops events across {(end_date - start_date).days + 1} days.")
 
-    print("1.5/15 Loading GTFS Fares v2 for monitored agencies...")
+    print("1.5/20 Loading GTFS Fares v2 for monitored agencies...")
     try:
         from app.services.gtfs_fares_loader import load_fares_for_all_monitored
         summary = load_fares_for_all_monitored(engine)
@@ -121,7 +121,20 @@ def main() -> None:
     except Exception as e:
         print(f"     Fares v2 load failed (skipping): {e}")
 
-    print("2/15 Rebuilding trip_stop_snapshots...")
+    print("1.6/20 Loading GTFS Pathways for monitored agencies...")
+    try:
+        from app.services.gtfs_pathways_loader import load_all_pathways
+        with engine.begin() as conn:
+            counts = load_all_pathways(conn)
+        if counts:
+            print(f"     Pathways loaded from {len(counts)} agencies: "
+                  f"{sum(counts.values())} total rows")
+        else:
+            print("     No agencies published pathways.txt; skipping")
+    except Exception as e:
+        print(f"     Pathways load failed (skipping): {e}")
+
+    print("2/20 Rebuilding trip_stop_snapshots...")
     try:
         with engine.begin() as conn:
             rebuild_trip_stop_snapshots(start_date, end_date, conn=conn)
@@ -129,7 +142,7 @@ def main() -> None:
     except Exception as e:
         print("     trip_stop_snapshots failed (skipping):", e)
 
-    print("3/15 Rebuilding stop_features...")
+    print("3/20 Rebuilding stop_features...")
     try:
         with engine.begin() as conn:
             rebuild_stop_features(conn=conn)
@@ -137,7 +150,16 @@ def main() -> None:
     except Exception as e:
         print("     stop_features failed (skipping):", e)
 
-    print("4/15 Computing headways for each service date...")
+    print("3.5/20 Loading Bay Area census tract geometry (TIGERweb)...")
+    try:
+        from app.services.census_tracts_loader import load_bay_area_tracts
+        with engine.begin() as conn:
+            n = load_bay_area_tracts(conn)
+        print(f"     Tracts loaded: {n}")
+    except Exception as e:
+        print(f"     Tract load failed (skipping): {e}")
+
+    print("4/20 Computing headways for each service date...")
     current = start_date
     while current <= end_date:
         try:
@@ -148,7 +170,16 @@ def main() -> None:
         current += timedelta(days=1)
     print("     Done.")
 
-    print("5/15 Generating delay predictions...")
+    print("4.5/20 Loading Census B18105 (Ambulatory Difficulty)...")
+    try:
+        from app.services.census_ambulatory_loader import load_b18105
+        with engine.begin() as conn:
+            n = load_b18105(conn)
+        print(f"     B18105 loaded: {n} tracts")
+    except Exception as e:
+        print(f"     B18105 load failed (skipping): {e}")
+
+    print("5/20 Generating delay predictions...")
     try:
         with engine.begin() as conn:
             generate_delay_predictions(start_date, end_date, conn=conn)
@@ -156,7 +187,7 @@ def main() -> None:
     except Exception as e:
         print("     Delay predictions failed (skipping):", e)
 
-    print("6/15 Generating bunching predictions...")
+    print("6/20 Generating bunching predictions...")
     try:
         with engine.begin() as conn:
             generate_bunching_predictions(start_date, end_date, conn=conn)
@@ -164,7 +195,7 @@ def main() -> None:
     except Exception as e:
         print("     Bunching predictions failed (skipping):", e)
 
-    print("7/15 Generating demand forecasts and crowding predictions...")
+    print("7/20 Generating demand forecasts and crowding predictions...")
     try:
         with engine.begin() as conn:
             generate_demand_forecasts(start_date, end_date, conn=conn)
@@ -173,7 +204,7 @@ def main() -> None:
     except Exception as e:
         print("     Demand/crowding predictions failed (skipping):", e)
 
-    print("8/15 Loading safety incidents from Oakland open data...")
+    print("8/20 Loading safety incidents from Oakland open data...")
     try:
         with engine.begin() as conn:
             load_safety_incidents(conn=conn)
@@ -181,12 +212,12 @@ def main() -> None:
         print("     Safety incident load failed (skipping):", e)
     print("     Done.")
 
-    print("9/15 Computing stop safety scores...")
+    print("9/20 Computing stop safety scores...")
     with engine.begin() as conn:
         compute_stop_safety_scores(conn=conn)
     print("     Done.")
 
-    print("10/15 Building coverage cells and transit deserts...")
+    print("10/20 Building coverage cells and transit deserts...")
     try:
         with engine.begin() as conn:
             build_coverage_cells(conn=conn)
@@ -196,7 +227,7 @@ def main() -> None:
         print("     Coverage build failed (skipping):", e)
     print("     Done.")
 
-    print("11/15 Populating equity columns from Census ACS...")
+    print("11/20 Populating equity columns from Census ACS...")
     try:
         with engine.begin() as conn:
             populate_equity_columns(conn=conn)
@@ -204,7 +235,7 @@ def main() -> None:
         print(f"     Equity population failed (skipping): {e}")
     print("     Done.")
 
-    print("12/15 Computing cross-agency transfer reliability matrix...")
+    print("12/20 Computing cross-agency transfer reliability matrix...")
     try:
         from app.services.transfer_reliability import compute_transfer_reliability
         with engine.begin() as conn:
@@ -213,7 +244,7 @@ def main() -> None:
     except Exception as e:
         print(f"     transfer_reliability failed (skipping): {e}")
 
-    print("13/15 Loading previous month stop_observations (if not already loaded)...")
+    print("13/20 Loading previous month stop_observations (if not already loaded)...")
     try:
         from app.core.config import get_settings as _gs2
         if _gs2().five11_api_key:
@@ -230,7 +261,7 @@ def main() -> None:
         print(f"     stop_observations load failed (skipping): {e}")
     print("     Done.")
 
-    print("14/15 Computing fare burden by cell...")
+    print("14/20 Computing fare burden by cell...")
     try:
         from app.services.fare_burden import compute_fare_burden_for_all_cells
         with engine.begin() as conn:
@@ -239,8 +270,8 @@ def main() -> None:
     except Exception as e:
         print(f"     fare_burden failed (skipping): {e}")
 
-    # ── Step 15/15  Service Delivery Gap compute (Sprint 5b) ────────────────
-    print("\n[ETL] 15/15  Computing service delivery gap...")
+    # ── Step 15/20  Service Delivery Gap compute (Sprint 5b) ────────────────
+    print("\n[ETL] 15/20  Computing service delivery gap...")
     try:
         from app.services.service_delivery_gap import (
             compute_service_delivery_gap_for_all_cells,
@@ -250,6 +281,26 @@ def main() -> None:
         print(f"     Wrote {n} service_delivery_gap rows.")
     except Exception as e:
         print(f"     Service delivery gap compute failed (skipping): {e}")
+
+    print("16/20 Computing ADA accessibility gap per stop...")
+    try:
+        from app.services.ada_accessibility_gap import (
+            compute_stop_ada_gap_for_all_stops,
+        )
+        with engine.begin() as conn:
+            n = compute_stop_ada_gap_for_all_stops(conn)
+        print(f"     Stops scored: {n}")
+    except Exception as e:
+        print(f"     ADA gap compute failed (skipping): {e}")
+
+    print("17/20 Refreshing cell_ada_gap materialized view...")
+    try:
+        from app.services.ada_accessibility_gap import refresh_cell_ada_gap
+        with engine.begin() as conn:
+            refresh_cell_ada_gap(conn)
+        print("     cell_ada_gap refreshed")
+    except Exception as e:
+        print(f"     cell_ada_gap refresh failed (skipping): {e}")
 
     print("All data jobs completed.")
 
