@@ -253,6 +253,39 @@ def equity_fare_burden(
     return {"type": "FeatureCollection", "features": features}
 
 
+# ── Sprint 5b → Service Delivery Gap ────────────────────────────────────────
+
+@app.get("/equity/service-delivery-gap", dependencies=[Depends(api_key_dependency)])
+def equity_service_delivery_gap(
+    min_population: int = Query(default=0, ge=0),
+    limit:          int = Query(default=2000, ge=1, le=5000),
+    conn: Connection = Depends(get_conn),
+):
+    """GeoJSON FeatureCollection — one polygon per cell with gap_pct,
+    gap_tier, equity_adjusted_gap, and window dates.  Sprint 5b."""
+    from app.services.service_delivery_gap import get_service_delivery_gap_features
+    features = get_service_delivery_gap_features(
+        conn, min_population=min_population, limit=limit,
+    )
+    return {"type": "FeatureCollection", "features": features}
+
+
+@app.get(
+    "/equity/service-delivery-gap/cells/{cell_id}/routes",
+    dependencies=[Depends(api_key_dependency)],
+)
+def equity_service_delivery_gap_routes(
+    cell_id: str,
+    limit:   int = Query(default=5, ge=1, le=20),
+    conn: Connection = Depends(get_conn),
+):
+    """Top-N routes by missed-arrival count inside cell_id over the
+    same 12-month window.  Used by the Planning → Service Delivery Gap
+    sub-page's click-to-drawer drill-down."""
+    from app.services.service_delivery_gap import get_route_breakdown_for_cell
+    return get_route_breakdown_for_cell(conn, cell_id, limit=limit)
+
+
 # ── Sprint 4a → Fares v2 (debug-only endpoint for now) ──────────────────────
 
 from app.services.fare_calculator import FareRequest as _FareRequest, calculate_fare as _calculate_fare

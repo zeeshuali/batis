@@ -2,8 +2,10 @@
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from app.main import app
 from app.services.service_delivery_gap import (
     _gap_tier,
     compute_service_delivery_gap_for_all_cells,
@@ -256,3 +258,53 @@ def test_tolerance_seconds_config_override(db_conn, gap_fixture_cells, monkeypat
         assert row[0] == 7
     finally:
         get_settings.cache_clear()
+
+
+# ── Endpoint tests ────────────────────────────────────────────────────────────
+
+def _client_with_key():
+    """TestClient pre-configured with the dev API key header if set."""
+    from app.core.config import get_settings
+    headers = {}
+    key = get_settings().backend_api_key
+    if key:
+        headers["X-API-Key"] = key
+    c = TestClient(app)
+    c.headers.update(headers)
+    return c
+
+
+def test_endpoint_returns_feature_collection(db_conn, gap_fixture_cells):
+    compute_service_delivery_gap_for_all_cells(db_conn, min_scheduled=50)
+    db_conn.commit()  # TestClient uses a separate connection — must commit first
+    c = _client_with_key()
+    r = c.get("/equity/service-delivery-gap")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["type"] == "FeatureCollection"
+    test_props = {f["properties"]["cell_id"]
+                  for f in body["features"]
+                  if f["properties"]["cell_id"].startswith("test-")}
+    assert "test-A" in test_props
+
+
+def test_routes_endpoint_returns_top_n(db_conn, gap_fixture_cells):
+    c = _client_with_key()
+    r = c.get("/equity/service-delivery-gap/cells/test-A/routes?limit=3")
+    assert r.status_code == 200
+    rows = r.json()
+    assert isinstance(rows, list)
+    assert len(rows) <= 3
+    if rows:
+        assert "route_id" in rows[0]
+        assert "missed_arrivals" in rows[0]
+
+
+def test_endpoint_401_without_api_key():
+    """If backend_api_key is set in settings, request without header is 401."""
+    from app.core.config import get_settings
+    if not get_settings().backend_api_key:
+        pytest.skip("api key not configured in this env")
+    c = TestClient(app)
+    r = c.get("/equity/service-delivery-gap")
+    assert r.status_code == 401
