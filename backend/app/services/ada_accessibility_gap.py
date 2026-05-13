@@ -270,6 +270,84 @@ def get_cell_ada_gap_features(
     return features
 
 
+def get_stop_ada_gap_breakdown(
+    conn: Connection,
+    stop_id: str,
+) -> dict[str, Any]:
+    """Per-stop drill: stop metadata + routes serving + top-3
+    contributing tracts by area-weighted ambulatory pop."""
+    meta_row = conn.execute(text("""
+        SELECT sag.stop_id, sag.agency_id, s.stop_name,
+               sag.gap_score, sag.gap_tier, sag.supply_penalty,
+               sag.pathways_override, sag.catchment_radius_m
+          FROM stop_ada_gap sag
+          JOIN gtfs_stops    s ON s.stop_id = sag.stop_id
+         WHERE sag.stop_id = :sid
+    """), {"sid": stop_id}).mappings().fetchone()
+
+    if not meta_row:
+        return {"stop_id": stop_id, "routes": [], "tracts": []}
+
+    routes = conn.execute(text("""
+        SELECT r.route_id,
+               r.route_short_name,
+               COUNT(DISTINCT tr.trip_id)::int AS trips_per_day
+          FROM gtfs_stop_times st
+          JOIN gtfs_trips      tr ON tr.trip_id  = st.trip_id
+          JOIN gtfs_routes     r  ON r.route_id  = tr.route_id
+                                AND r.agency_id = :aid
+         WHERE st.stop_id = :sid
+         GROUP BY r.route_id, r.route_short_name
+         ORDER BY trips_per_day DESC
+         LIMIT 10
+    """), {"sid": stop_id, "aid": meta_row["agency_id"]}).mappings().all()
+
+    radius = meta_row["catchment_radius_m"] or 400
+    tracts = conn.execute(text("""
+        WITH stop_geom AS (
+          SELECT geom FROM gtfs_stops WHERE stop_id = :sid
+        ),
+        buf AS (
+          SELECT ST_Buffer((SELECT geom FROM stop_geom)::geography, :r)::geometry AS geom
+        ),
+        contributions AS (
+          SELECT t.tract_geoid,
+                 ca.ambulatory_pop,
+                 ST_Area(ST_Intersection(buf.geom, t.geom)) AS overlap_area,
+                 ST_Area(t.geom) AS tract_area
+            FROM census_tracts     t
+            CROSS JOIN buf
+            JOIN census_ambulatory ca USING (tract_geoid)
+           WHERE ST_Intersects(buf.geom, t.geom)
+        )
+        SELECT tract_geoid,
+               ambulatory_pop,
+               ROUND((overlap_area / NULLIF(tract_area, 0))::numeric, 3)::float
+                 AS area_weighted_share
+          FROM contributions
+         ORDER BY (ambulatory_pop * overlap_area / NULLIF(tract_area, 0)) DESC
+         LIMIT 3
+    """), {"sid": stop_id, "r": radius}).mappings().all()
+
+    return {
+        "stop_id":           meta_row["stop_id"],
+        "stop_name":         meta_row["stop_name"],
+        "agency_id":         meta_row["agency_id"],
+        "gap_score":         float(meta_row["gap_score"]) if meta_row["gap_score"] is not None else None,
+        "gap_tier":          meta_row["gap_tier"],
+        "supply_penalty":    float(meta_row["supply_penalty"]) if meta_row["supply_penalty"] is not None else None,
+        "pathways_override": bool(meta_row["pathways_override"]),
+        "routes":  [{"route_id":         r["route_id"],
+                     "route_short_name": r["route_short_name"],
+                     "trips_per_day":    int(r["trips_per_day"])}
+                    for r in routes],
+        "tracts":  [{"tract_geoid":         t["tract_geoid"],
+                     "ambulatory_pop":      int(t["ambulatory_pop"] or 0),
+                     "area_weighted_share": float(t["area_weighted_share"] or 0.0)}
+                    for t in tracts],
+    }
+
+
 def get_stop_ada_gap_features(
     conn: Connection,
     *,

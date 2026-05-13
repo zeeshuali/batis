@@ -299,3 +299,43 @@ def test_get_cell_ada_gap_features_returns_cells(db_conn, ada_fixture):
     assert "population" in props
     assert "equity_score" in props
     assert test_cell["geometry"]["type"] == "Polygon"
+
+
+from app.services.ada_accessibility_gap import (
+    get_stop_ada_gap_breakdown,
+)
+
+
+def test_get_stop_ada_gap_breakdown_returns_stop_meta(db_conn, ada_fixture):
+    compute_stop_ada_gap_for_all_stops(db_conn)
+    db_conn.commit()
+
+    breakdown = get_stop_ada_gap_breakdown(db_conn, "test-stop-A")
+    assert breakdown["stop_id"] == "test-stop-A"
+    assert breakdown["agency_id"] == "TESTADA"
+    assert breakdown["stop_name"] == "Test"
+    assert "gap_score" in breakdown
+    assert "gap_tier" in breakdown
+    assert "supply_penalty" in breakdown
+    assert "pathways_override" in breakdown
+    assert "routes" in breakdown
+    assert "tracts" in breakdown
+
+
+def test_get_stop_ada_gap_breakdown_tracts_within_buffer(db_conn, ada_fixture):
+    compute_stop_ada_gap_for_all_stops(db_conn)
+    db_conn.commit()
+
+    breakdown = get_stop_ada_gap_breakdown(db_conn, "test-stop-A")
+    tract_ids = {t["tract_geoid"] for t in breakdown["tracts"]}
+    # stop-A is at (0.005, 0.005) — buffer should reach test-T1.
+    assert "test-T1" in tract_ids
+
+
+def test_get_stop_ada_gap_breakdown_unknown_stop_returns_empty(db_conn, ada_fixture):
+    compute_stop_ada_gap_for_all_stops(db_conn)
+    db_conn.commit()
+    breakdown = get_stop_ada_gap_breakdown(db_conn, "does-not-exist-xyz")
+    assert breakdown.get("stop_id") in (None, "does-not-exist-xyz")
+    assert breakdown.get("routes")  == []
+    assert breakdown.get("tracts")  == []
