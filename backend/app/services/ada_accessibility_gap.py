@@ -220,3 +220,64 @@ def refresh_cell_ada_gap(conn: Connection) -> None:
     because the view has no unique index (same precedent as Sprint
     5b's stop_cell)."""
     conn.execute(text("REFRESH MATERIALIZED VIEW cell_ada_gap"))
+
+
+def get_stop_ada_gap_features(
+    conn: Connection,
+    *,
+    tier: Optional[str] = None,
+    limit: int = 5000,
+) -> list[dict[str, Any]]:
+    """Read stop_ada_gap joined with gtfs_stops geometry + routes
+    serving (from gtfs_stop_times + gtfs_trips), return GeoJSON-ready
+    Feature dicts.  Sorted by gap_score DESC.
+    """
+    rows = conn.execute(text("""
+        SELECT sag.stop_id,
+               sag.agency_id,
+               s.stop_name,
+               s.wheelchair_boarding,
+               sag.supply_penalty,
+               sag.ambulatory_pop_400m,
+               sag.gap_score,
+               sag.gap_tier,
+               sag.pathways_override,
+               ST_AsGeoJSON(s.geom)::json AS geometry,
+               COALESCE(
+                 (SELECT array_agg(DISTINCT r.route_short_name
+                                   ORDER BY r.route_short_name)
+                    FROM gtfs_stop_times st
+                    JOIN gtfs_trips      tr ON tr.trip_id  = st.trip_id
+                    JOIN gtfs_routes     r  ON r.route_id  = tr.route_id
+                                          AND r.agency_id = sag.agency_id
+                   WHERE st.stop_id = sag.stop_id), ARRAY[]::text[]
+               ) AS routes_serving
+          FROM stop_ada_gap sag
+          JOIN gtfs_stops    s ON s.stop_id = sag.stop_id
+         WHERE (:tier IS NULL OR sag.gap_tier = :tier)
+         ORDER BY sag.gap_score DESC NULLS LAST, sag.stop_id
+         LIMIT :lim
+    """), {"tier": tier, "lim": limit}).mappings().all()
+
+    features: list[dict[str, Any]] = []
+    for r in rows:
+        features.append({
+            "type":     "Feature",
+            "geometry": r["geometry"],
+            "properties": {
+                "stop_id":             r["stop_id"],
+                "agency_id":           r["agency_id"],
+                "stop_name":           r["stop_name"],
+                "wheelchair_boarding": r["wheelchair_boarding"],
+                "supply_penalty":      float(r["supply_penalty"])
+                                       if r["supply_penalty"] is not None else None,
+                "ambulatory_pop_400m": int(r["ambulatory_pop_400m"])
+                                       if r["ambulatory_pop_400m"] is not None else 0,
+                "gap_score":           float(r["gap_score"])
+                                       if r["gap_score"] is not None else 0.0,
+                "gap_tier":            r["gap_tier"],
+                "pathways_override":   bool(r["pathways_override"]),
+                "routes_serving":      list(r["routes_serving"] or []),
+            },
+        })
+    return features

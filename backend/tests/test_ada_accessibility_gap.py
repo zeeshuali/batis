@@ -230,3 +230,47 @@ def test_refresh_cell_ada_gap_populates_view(db_conn, ada_fixture):
     # max gap_score in test-cellA is whichever of A (1.0×demand) or D
     # (1.0×demand) is larger; both > 0 → max > 0.
     assert float(row[1]) > 0
+
+
+from app.services.ada_accessibility_gap import (
+    get_stop_ada_gap_features,
+)
+
+
+def test_get_stop_ada_gap_features_returns_features(db_conn, ada_fixture):
+    compute_stop_ada_gap_for_all_stops(db_conn)
+    db_conn.commit()
+
+    features = get_stop_ada_gap_features(db_conn, limit=5000)
+    test_features = [f for f in features
+                     if f["properties"]["stop_id"].startswith("test-stop-")]
+    assert len(test_features) == 4
+
+    sample = next(f for f in test_features
+                  if f["properties"]["stop_id"] == "test-stop-A")
+    props = sample["properties"]
+    assert props["agency_id"] == "TESTADA"
+    assert props["wheelchair_boarding"] == 2
+    assert props["supply_penalty"] == 1.0
+    assert props["gap_tier"] in {"low", "moderate", "high", "very_high"}
+    assert "ambulatory_pop_400m" in props
+    assert "gap_score" in props
+    assert "pathways_override" in props
+    assert "routes_serving" in props   # may be empty list
+    assert sample["geometry"]["type"] == "Point"
+
+
+def test_get_stop_ada_gap_features_sorted_desc(db_conn, ada_fixture):
+    compute_stop_ada_gap_for_all_stops(db_conn)
+    db_conn.commit()
+    features = get_stop_ada_gap_features(db_conn, limit=50)
+    scores = [float(f["properties"]["gap_score"]) for f in features]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_get_stop_ada_gap_features_tier_filter(db_conn, ada_fixture):
+    compute_stop_ada_gap_for_all_stops(db_conn)
+    db_conn.commit()
+    features = get_stop_ada_gap_features(db_conn, tier="low", limit=5000)
+    for f in features:
+        assert f["properties"]["gap_tier"] == "low"
