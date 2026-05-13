@@ -16,20 +16,21 @@ CREATE TABLE IF NOT EXISTS gtfs_feeds (
 );
 
 CREATE TABLE IF NOT EXISTS gtfs_routes (
-  route_id text PRIMARY KEY,
-  agency_id text DEFAULT 'AC',
+  route_id text NOT NULL,
+  agency_id text NOT NULL DEFAULT 'AC',
   route_short_name text,
   route_long_name text,
   route_desc text,
   route_type integer,
   route_url text,
   route_color text,
-  route_text_color text
+  route_text_color text,
+  PRIMARY KEY (agency_id, route_id)
 );
 
 CREATE TABLE IF NOT EXISTS gtfs_stops (
   stop_id text PRIMARY KEY,
-  agency_id text DEFAULT 'AC',
+  agency_id text NOT NULL DEFAULT 'AC',
   stop_code text,
   stop_name text,
   stop_desc text,
@@ -44,52 +45,64 @@ CREATE TABLE IF NOT EXISTS gtfs_stops (
   geom geometry(Point, 4326)
 );
 
+-- Composite unique on (agency_id, stop_id) is the target of the loader's
+-- ON CONFLICT clause; it also guards against future cross-agency stop_id
+-- collisions. Single-column PK on stop_id stays because stop_safety_scores
+-- and stop_features FK to it.
+CREATE UNIQUE INDEX IF NOT EXISTS gtfs_stops_agency_stop_uniq
+  ON gtfs_stops (agency_id, stop_id);
+
 CREATE INDEX IF NOT EXISTS idx_gtfs_stops_geom
   ON gtfs_stops
   USING GIST (geom);
 
 CREATE TABLE IF NOT EXISTS gtfs_trips (
-  trip_id text PRIMARY KEY,
-  agency_id text DEFAULT 'AC',
-  route_id text NOT NULL REFERENCES gtfs_routes(route_id),
+  trip_id text NOT NULL,
+  agency_id text NOT NULL DEFAULT 'AC',
+  route_id text NOT NULL,
   service_id text,
   trip_headsign text,
   direction_id integer,
   block_id text,
   shape_id text,
-  peak_offpeak text
+  peak_offpeak text,
+  PRIMARY KEY (agency_id, trip_id),
+  FOREIGN KEY (agency_id, route_id) REFERENCES gtfs_routes(agency_id, route_id)
 );
 
 CREATE TABLE IF NOT EXISTS gtfs_stop_times (
-  trip_id text NOT NULL REFERENCES gtfs_trips(trip_id),
-  agency_id text DEFAULT 'AC',
+  trip_id text NOT NULL,
+  agency_id text NOT NULL DEFAULT 'AC',
   arrival_time text,
   departure_time text,
   stop_id text NOT NULL REFERENCES gtfs_stops(stop_id),
-  stop_sequence integer,
+  stop_sequence integer NOT NULL,
   pickup_type integer,
   drop_off_type integer,
   timepoint integer,
-  PRIMARY KEY (trip_id, stop_sequence)
+  PRIMARY KEY (agency_id, trip_id, stop_sequence),
+  FOREIGN KEY (agency_id, trip_id) REFERENCES gtfs_trips(agency_id, trip_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_gtfs_stop_times_stop_id
   ON gtfs_stop_times (stop_id);
 
 CREATE TABLE IF NOT EXISTS gtfs_shapes (
-  shape_id text,
+  shape_id text NOT NULL,
+  agency_id text NOT NULL DEFAULT 'AC',
   shape_pt_lat double precision,
   shape_pt_lon double precision,
-  shape_pt_sequence integer,
+  shape_pt_sequence integer NOT NULL,
   shape_dist_traveled double precision,
-  PRIMARY KEY (shape_id, shape_pt_sequence)
+  PRIMARY KEY (agency_id, shape_id, shape_pt_sequence)
 );
 
 -- Optional pre-aggregated shapes as LineStrings for map rendering
 CREATE TABLE IF NOT EXISTS gtfs_shape_geoms (
-  shape_id text PRIMARY KEY,
-  agency_id text DEFAULT 'AC',
-  geom geometry(LineString, 4326)
+  shape_id text NOT NULL,
+  agency_id text NOT NULL DEFAULT 'AC',
+  geom geometry(LineString, 4326),
+  PRIMARY KEY (agency_id, shape_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_gtfs_shape_geoms_geom
