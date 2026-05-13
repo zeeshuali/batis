@@ -8,12 +8,13 @@ import { Scenarios }   from "./planning/Scenarios";
 import { Fares }       from "./planning/Fares";
 import { FareBurden }  from "./planning/FareBurden";
 import { ServiceDeliveryGap } from "./planning/ServiceDeliveryGap";
+import { ADAGap } from "./planning/ADAGap";
 import "./sections.css";
 import "./planning/planning.css";
 
 type SubKey = "diagnostics" | "coverage" | "regional" | "workbench"
             | "scenarios"   | "fares"    | "fare-burden"
-            | "service-delivery-gap";
+            | "service-delivery-gap" | "ada-gap";
 const SUBS: { key: SubKey; label: string; persona: string }[] = [
   { key: "diagnostics", label: "Diagnostics", persona: "Agency service planner" },
   { key: "coverage",    label: "Coverage",    persona: "City / municipal planner" },
@@ -24,6 +25,8 @@ const SUBS: { key: SubKey; label: string; persona: string }[] = [
   { key: "fare-burden", label: "Fare Burden", persona: "Regional fare-as-%-of-income map" },
   { key: "service-delivery-gap", label: "Delivery Gap",
     persona: "Scheduled vs. observed service per cell" },
+  { key: "ada-gap", label: "ADA Gap",
+    persona: "Stops to prioritize for wheelchair retrofit" },
 ];
 
 const DEFAULT_SUB: SubKey = "diagnostics";
@@ -67,6 +70,7 @@ export const Planning: React.FC = () => {
         {active === "fares"       && <Fares />}
         {active === "fare-burden" && <FareBurden />}
         {active === "service-delivery-gap" && <ServiceDeliveryGap />}
+        {active === "ada-gap" && <ADAGap />}
       </div>
     </div>
   );

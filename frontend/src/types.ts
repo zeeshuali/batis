@@ -32,4 +32,5 @@ export type Section =
   | "scenarios"
   | "fares"
   | "fare-burden"
-  | "service-delivery-gap";
+  | "service-delivery-gap"
+  | "ada-gap";

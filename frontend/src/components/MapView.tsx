@@ -40,7 +40,7 @@ interface LegendItem {
 
 // ─── Layer / source constants ─────────────────────────────────────────────────
 
-const SOURCES = ["reliability-stops", "safety-stops", "crowding-stops", "demand-stops", "coverage-cells", "deserts", "equity-cells", "selected-route", "rt-vehicles", "planner-origin", "planner-dest", "traffic-events", "work-zones", "affected-routes", "workbench-point", "scenario-stops", "fares-origin", "fares-dest", "fare-burden-cells", "fare-burden-anchors", "service-delivery-gap-cells"] as const;
+const SOURCES = ["reliability-stops", "safety-stops", "crowding-stops", "demand-stops", "coverage-cells", "deserts", "equity-cells", "selected-route", "rt-vehicles", "planner-origin", "planner-dest", "traffic-events", "work-zones", "affected-routes", "workbench-point", "scenario-stops", "fares-origin", "fares-dest", "fare-burden-cells", "fare-burden-anchors", "service-delivery-gap-cells", "ada-gap-stops", "ada-gap-cells"] as const;
 
 const SECTION_LAYERS: Record<Section, string[]> = {
   // reliability-heat is included here so toggleLayers hides it when leaving these sections.
@@ -78,6 +78,12 @@ const SECTION_LAYERS: Record<Section, string[]> = {
   "service-delivery-gap": [
     "service-delivery-gap-fill",
     "service-delivery-gap-outline",
+  ],
+  // ADA Gap: circles sized by gap_score, colored by gap_tier.
+  // Optional cell rollup layer toggled by adaShowCellsRollup.
+  "ada-gap": [
+    "ada-gap-stops-layer",
+    "ada-gap-cells-layer",
   ],
 };
 
@@ -148,6 +154,17 @@ const GAP_COLOR: mapboxgl.Expression = [
   "moderate",  "#facc15",
   "low",       "#22c55e",
   /* else */   "#475569",
+];
+
+// ADA Gap — discrete 4-tier match on gap_tier, applied to both the
+// stop circles and the cell-rollup fill.
+const ADA_GAP_TIER_COLOR: mapboxgl.Expression = [
+  "match", ["coalesce", ["get", "gap_tier"], "none"],
+  "very_high", "#c81e1e",
+  "high",      "#f59e0b",
+  "moderate",  "#fbbf24",
+  "low",       "#65a30d",
+  /* else */   "#6b7280",
 ];
 
 // ─── Legend definitions ───────────────────────────────────────────────────────
@@ -291,6 +308,15 @@ const LEGENDS: Record<Section, { title: string; items: LegendItem[] }> = {
       { color: "#f97316", label: "High (5–10%)",     shape: "square" },
       { color: "#facc15", label: "Moderate (2–5%)",  shape: "square" },
       { color: "#22c55e", label: "Low (<2%)",        shape: "square" },
+    ],
+  },
+  "ada-gap": {
+    title: "ADA Gap",
+    items: [
+      { color: "#c81e1e", label: "Very high" },
+      { color: "#f59e0b", label: "High" },
+      { color: "#fbbf24", label: "Moderate" },
+      { color: "#65a30d", label: "Low" },
     ],
   },
 };
@@ -444,7 +470,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   // Read filter + selection from contexts. Local aliases below keep the
   // rest of the ~1,100-line component compiling unchanged.
   const { filters } = useFilters();
-  const { selection, setStopId, setPlannerOrigin, setPlannerDest, resetPlanner, setWorkbenchPoint, addScenarioStop, setFaresPin, setServiceGapDrillCell } = useSelection();
+  const { selection, setStopId, setPlannerOrigin, setPlannerDest, resetPlanner, setWorkbenchPoint, addScenarioStop, setFaresPin, setServiceGapDrillCell, setAdaGapDrillStop } = useSelection();
   const { agencies } = useAgencies();
 
   const startDate = filters.startDate;
@@ -490,6 +516,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   const onScenarioMapClickRef  = useRef(onScenarioMapClick);
   const onFaresMapClickRef     = useRef(onFaresMapClick);
   const setServiceGapDrillCellRef = useRef<((cellId: string | null) => void) | null>(null);
+  const setAdaGapDrillStopRef     = useRef<((stopId: string | null) => void) | null>(null);
   const isFirstRenderRef       = useRef(true);
 
   // Keep refs in sync with props/state
@@ -503,11 +530,13 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   useEffect(() => { onScenarioMapClickRef.current  = onScenarioMapClick;  }, [onScenarioMapClick]);
   useEffect(() => { onFaresMapClickRef.current     = onFaresMapClick;     }, [onFaresMapClick]);
   useEffect(() => { setServiceGapDrillCellRef.current = setServiceGapDrillCell; }, [setServiceGapDrillCell]);
+  useEffect(() => { setAdaGapDrillStopRef.current = setAdaGapDrillStop; }, [setAdaGapDrillStop]);
 
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState<string | null>(null);
   const [isEmpty,    setIsEmpty]    = useState(false);
   const [heatmapMode, setHeatmapMode] = useState(false);
+  const [adaShowCellsRollup, setAdaShowCellsRollup] = useState(false);
 
   // ── Apply data to a source (safe: waits for map load) ──────────────────────
   const applyGeoJSON = useCallback(
@@ -699,6 +728,12 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
             );
             applyGeoJSON("service-delivery-gap-cells", res.data);
             setIsEmpty(res.data.features.length === 0);
+            break;
+          }
+          case "ada-gap": {
+            // Data is fetched by dedicated useEffect hooks that respect
+            // the adaShowCellsRollup toggle; nothing to do here.
+            setIsEmpty(false);
             break;
           }
         }
@@ -902,6 +937,47 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
         "line-color": "rgba(148,163,184,0.18)",
         "line-width": 0.5,
       },
+    });
+
+    // ── ADA Gap — stop circles + optional cell-rollup fill (Sprint 5c) ───────
+    map.addLayer({
+      id: "ada-gap-cells-layer", type: "fill", source: "ada-gap-cells",
+      layout: { visibility: "none" },
+      paint: {
+        "fill-color":   ADA_GAP_TIER_COLOR,
+        "fill-opacity": 0.45,
+      },
+    });
+    map.addLayer({
+      id: "ada-gap-stops-layer", type: "circle", source: "ada-gap-stops",
+      layout: { visibility: "none" },
+      paint: {
+        "circle-color": ADA_GAP_TIER_COLOR,
+        "circle-radius": [
+          "interpolate", ["linear"], ["coalesce", ["get", "gap_score"], 0],
+          0,    4,
+          100,  8,
+          500,  14,
+          2000, 22,
+        ],
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 1,
+      },
+    });
+
+    // ── ADA Gap click handler ─────────────────────────────────────────────────
+    map.on("click", "ada-gap-stops-layer", (e) => {
+      const f = e.features?.[0];
+      const sid = f?.properties?.stop_id;
+      if (typeof sid === "string" && setAdaGapDrillStopRef.current) {
+        setAdaGapDrillStopRef.current(sid);
+      }
+    });
+    map.on("mouseenter", "ada-gap-stops-layer", () => {
+      map.getCanvas().style.cursor = "pointer";
+    });
+    map.on("mouseleave", "ada-gap-stops-layer", () => {
+      map.getCanvas().style.cursor = "";
     });
 
     // ── Transit deserts ────────────────────────────────────────────────────
@@ -1313,6 +1389,38 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
       map.once("style.load", apply);
     }
   }, [selectedRouteId, filters.search, agencyFilter]);
+
+  // ── ADA Gap — fetch stop circles when mode is active ────────────────────
+  useEffect(() => {
+    if (activeSection !== "ada-gap") return;
+    let cancelled = false;
+    axios
+      .get<GeoJSON.FeatureCollection>(`${API_BASE}/accessibility/gaps`, {
+        headers: apiHeaders(),
+        params: { limit: 20000 },
+      })
+      .then(r => { if (!cancelled) applyGeoJSON("ada-gap-stops", r.data); })
+      .catch((err) => {
+        if (!cancelled && axios.isAxiosError(err)) setError(err.message);
+      });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection, applyGeoJSON]);
+
+  // ── ADA Gap — fetch cell rollup when toggled on ───────────────────────────
+  useEffect(() => {
+    if (activeSection !== "ada-gap" || !adaShowCellsRollup) return;
+    let cancelled = false;
+    axios
+      .get<GeoJSON.FeatureCollection>(`${API_BASE}/accessibility/gaps/cells`, {
+        headers: apiHeaders(),
+        params: { limit: 5000 },
+      })
+      .then(r => { if (!cancelled) applyGeoJSON("ada-gap-cells", r.data); })
+      .catch(() => { /* silently empty */ });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection, adaShowCellsRollup, applyGeoJSON]);
 
   // ── Poll vehicles every 30s when in vehicles section ─────────────────────
   useEffect(() => {
