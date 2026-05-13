@@ -379,6 +379,17 @@ def load_missing_months(conn: Connection, months_back: int = 3) -> dict[str, int
     return results
 
 
+def backfill_last_n_months(conn: Connection, n: int = 12) -> dict[str, int]:
+    """Load the most recent N missing months from the 511.org archive.
+
+    Thin wrapper over load_missing_months so the operator-facing
+    runner module (workers/backfill_stop_observations.py) has a
+    purpose-named entry point.  Per-month idempotent: months already
+    loaded are skipped.
+    """
+    return load_missing_months(conn, months_back=n)
+
+
 def backfill_all_history(conn: Connection) -> dict[str, int]:
     """
     Load all months from March 2022 to present that aren't already in the DB.
