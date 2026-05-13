@@ -21,6 +21,9 @@ build/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+# Vitest leaves a cache at /node_modules/.vite/vitest when you run it
+# from the repo root (instead of frontend/) — keep the root clean.
+/node_modules/
 
 # Editor
 .vscode/
