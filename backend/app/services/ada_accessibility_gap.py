@@ -339,7 +339,8 @@ def get_stop_ada_gap_breakdown(
         "pathways_override": bool(meta_row["pathways_override"]),
         "routes":  [{"route_id":         r["route_id"],
                      "route_short_name": r["route_short_name"],
-                     "trips_per_day":    int(r["trips_per_day"])}
+                     "trips_per_day":    int(r["trips_per_day"]),
+                     "agency_id":        meta_row["agency_id"]}
                     for r in routes],
         "tracts":  [{"tract_geoid":         t["tract_geoid"],
                      "ambulatory_pop":      int(t["ambulatory_pop"] or 0),

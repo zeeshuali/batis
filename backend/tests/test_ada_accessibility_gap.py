@@ -137,6 +137,26 @@ def ada_fixture(db_conn):
           ON CONFLICT (agency_id, pathway_id) DO NOTHING
         """))
 
+        # Route + trip + stop_times so breakdown returns at least one route for stop-A
+        db_conn.execute(text("""
+          INSERT INTO gtfs_routes
+            (route_id, agency_id, route_short_name, route_long_name, route_type)
+          VALUES ('test-route-1', 'TESTADA', 'T1', 'Test Route 1', 3)
+          ON CONFLICT DO NOTHING
+        """))
+        db_conn.execute(text("""
+          INSERT INTO gtfs_trips
+            (trip_id, agency_id, route_id, service_id, trip_headsign)
+          VALUES ('test-trip-1', 'TESTADA', 'test-route-1', 'WEEKDAY', 'Test')
+          ON CONFLICT DO NOTHING
+        """))
+        db_conn.execute(text("""
+          INSERT INTO gtfs_stop_times
+            (trip_id, agency_id, stop_id, stop_sequence, departure_time, arrival_time)
+          VALUES ('test-trip-1', 'TESTADA', 'test-stop-A', 1, '08:00:00', '08:00:00')
+          ON CONFLICT DO NOTHING
+        """))
+
         # Seed a coverage_cell for the cell rollup test.
         # The cell polygon fully contains stops A, B, and D
         # (all near (0.005-0.006, 0.005-0.006)).
@@ -159,6 +179,9 @@ def ada_fixture(db_conn):
         yield rows
     finally:
         db_conn.execute(text("DELETE FROM stop_ada_gap WHERE stop_id LIKE 'test-stop-%'"))
+        db_conn.execute(text("DELETE FROM gtfs_stop_times WHERE trip_id = 'test-trip-1'"))
+        db_conn.execute(text("DELETE FROM gtfs_trips WHERE trip_id = 'test-trip-1'"))
+        db_conn.execute(text("DELETE FROM gtfs_routes WHERE route_id = 'test-route-1'"))
         db_conn.execute(text("DELETE FROM gtfs_pathways WHERE agency_id = 'TESTADA'"))
         db_conn.execute(text("DELETE FROM gtfs_stops WHERE stop_id LIKE 'test-stop-%'"))
         db_conn.execute(text("DELETE FROM census_ambulatory WHERE tract_geoid LIKE 'test-T%'"))
@@ -320,6 +343,11 @@ def test_get_stop_ada_gap_breakdown_returns_stop_meta(db_conn, ada_fixture):
     assert "pathways_override" in breakdown
     assert "routes" in breakdown
     assert "tracts" in breakdown
+
+    # Each route entry must carry the stop's agency_id (Issue 1 regression guard)
+    assert len(breakdown["routes"]) >= 1, "test-stop-A should have at least one route seeded"
+    for r in breakdown["routes"]:
+        assert r.get("agency_id") == "TESTADA"
 
 
 def test_get_stop_ada_gap_breakdown_tracts_within_buffer(db_conn, ada_fixture):

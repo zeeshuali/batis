@@ -23,7 +23,6 @@ interface BreakdownResponse {
   agency_id:            string;
   gap_score:            number;
   gap_tier:             "low" | "moderate" | "high" | "very_high" | null;
-  wheelchair_boarding:  number | null;
   supply_penalty:       number | null;
   routes:               RouteRow[];
   tracts:               TractRow[];

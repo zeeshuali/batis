@@ -1574,6 +1574,24 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
     }
   }, [heatmapMode, activeSection]);
 
+  // ── Toggle stop circles vs cell rollup for ADA gap ───────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (activeSection !== "ada-gap" || !map || !mapLoadedRef.current) return;
+    if (map.getLayer("ada-gap-stops-layer")) {
+      map.setLayoutProperty(
+        "ada-gap-stops-layer", "visibility",
+        adaShowCellsRollup ? "none" : "visible"
+      );
+    }
+    if (map.getLayer("ada-gap-cells-layer")) {
+      map.setLayoutProperty(
+        "ada-gap-cells-layer", "visibility",
+        adaShowCellsRollup ? "visible" : "none"
+      );
+    }
+  }, [activeSection, adaShowCellsRollup]);
+
   // ─── Render ──────────────────────────────────────────────────────────────────
 
   const legend: { title: string; items: LegendItem[] } = activeSection === "vehicles"
@@ -1625,6 +1643,16 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
           onClick={() => setHeatmapMode((h) => !h)}
         >
           {heatmapMode ? "Dot View" : "Heatmap"}
+        </button>
+      )}
+
+      {/* ADA Gap cell rollup toggle */}
+      {activeSection === "ada-gap" && (
+        <button
+          className="map-heatmap-toggle"
+          onClick={() => setAdaShowCellsRollup(c => !c)}
+        >
+          {adaShowCellsRollup ? "Stop Circles" : "Cell Rollup"}
         </button>
       )}
 
