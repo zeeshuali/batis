@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import re
 
+import pytest
 from sqlalchemy import text
 
 
@@ -68,3 +69,24 @@ def test_stop_cell_view_exists(db_conn):
         "SELECT 1 FROM pg_matviews WHERE matviewname = 'stop_cell'"
     )).first()
     assert row is not None, "stop_cell materialized view missing"
+
+
+@pytest.mark.parametrize("table_name", [
+    "census_tracts",
+    "gtfs_pathways",
+    "gtfs_levels",
+    "census_ambulatory",
+    "stop_ada_gap",
+])
+def test_sprint5c_tables_exist(db_conn, table_name):
+    row = db_conn.execute(text(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = :t"
+    ), {"t": table_name}).first()
+    assert row is not None, f"Sprint 5c table '{table_name}' missing — migration 008 not applied"
+
+
+def test_cell_ada_gap_view_exists(db_conn):
+    row = db_conn.execute(text(
+        "SELECT 1 FROM pg_matviews WHERE matviewname = 'cell_ada_gap'"
+    )).first()
+    assert row is not None, "cell_ada_gap materialized view missing — migration 008 not applied"
