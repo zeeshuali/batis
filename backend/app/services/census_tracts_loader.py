@@ -38,13 +38,18 @@ _COUNTY_FIPS = [
 
 def _fetch_county(county_fips: str) -> list[dict[str, Any]]:
     """Fetch tract GeoJSON features for one Bay Area county."""
-    base = get_settings().tigerweb_base_url
-    url = (
-        f"{base}?where=STATE%3D06+AND+COUNTY%3D{county_fips}"
-        "&outFields=GEOID,STATE,COUNTY,TRACT"
-        "&outSR=4326&f=geojson"
+    s = get_settings()
+    resp = requests.get(
+        s.tigerweb_base_url,
+        params={
+            "where": f"STATE='06' AND COUNTY='{county_fips}'",
+            "outFields": "GEOID,STATE,COUNTY,TRACT",
+            "outSR": "4326",
+            "f": "geojson",
+        },
+        timeout=60,
+        verify=certifi.where(),
     )
-    resp = requests.get(url, timeout=60, verify=certifi.where())
     resp.raise_for_status()
     data = resp.json()
     return list(data.get("features", []))

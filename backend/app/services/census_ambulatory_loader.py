@@ -22,12 +22,23 @@ _COUNTY_FIPS = [
 ]
 
 # "With ambulatory difficulty" subtotal cells across age × sex bins.
-# Source: ACS B18105 table.
+# Source: ACS B18105 (Sex by Age by Ambulatory Difficulty), 2022 5-year.
+# Table has 5 age bins per sex (<18, 18-34, 35-64, 65-74, 75+) = 10 total.
+# Note: _019E is "Female under 18 total" (not a difficulty bin); _035E and
+# _038E do not exist in the published 2022 dataset.
 _AMBULATORY_BINS = [
-    "B18105_004E", "B18105_007E", "B18105_010E",
-    "B18105_013E", "B18105_016E", "B18105_019E",
-    "B18105_023E", "B18105_026E", "B18105_029E",
-    "B18105_032E", "B18105_035E", "B18105_038E",
+    # Male "with ambulatory difficulty" by age (5 bins)
+    "B18105_004E",  # under 18
+    "B18105_007E",  # 18-34
+    "B18105_010E",  # 35-64
+    "B18105_013E",  # 65-74
+    "B18105_016E",  # 75+
+    # Female "with ambulatory difficulty" by age (5 bins)
+    "B18105_020E",  # under 18
+    "B18105_023E",  # 18-34
+    "B18105_026E",  # 35-64
+    "B18105_029E",  # 65-74
+    "B18105_032E",  # 75+
 ]
 _TOTAL_POP = "B18105_001E"
 

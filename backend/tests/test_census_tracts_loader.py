@@ -52,11 +52,12 @@ def cleanup_tracts(db_conn):
 def test_load_bay_area_tracts_upserts(db_conn, cleanup_tracts):
     with patch("app.services.census_tracts_loader.requests.get") as mock_get:
         def fake_get(url, **kwargs):
+            where = kwargs.get("params", {}).get("where", "")
             class R:
                 status_code = 200
                 def raise_for_status(self): pass
                 def json(self_):
-                    if "COUNTY%3D001" in url or "COUNTY=001" in url:
+                    if "COUNTY='001'" in where:
                         return _FAKE_GEOJSON
                     return {"type": "FeatureCollection", "features": []}
             return R()
@@ -82,11 +83,12 @@ def test_load_bay_area_tracts_upserts(db_conn, cleanup_tracts):
 def test_load_bay_area_tracts_idempotent(db_conn, cleanup_tracts):
     with patch("app.services.census_tracts_loader.requests.get") as mock_get:
         def fake_get(url, **kwargs):
+            where = kwargs.get("params", {}).get("where", "")
             class R:
                 status_code = 200
                 def raise_for_status(self): pass
                 def json(self_):
-                    if "COUNTY%3D001" in url or "COUNTY=001" in url:
+                    if "COUNTY='001'" in where:
                         return _FAKE_GEOJSON
                     return {"type": "FeatureCollection", "features": []}
             return R()
