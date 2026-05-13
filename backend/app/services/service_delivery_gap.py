@@ -137,3 +137,48 @@ def get_service_delivery_gap_features(
             },
         })
     return features
+
+
+def get_route_breakdown_for_cell(
+    conn: Connection,
+    cell_id: str,
+    *,
+    limit: int = 5,
+    window_days: int = 365,
+    tolerance_seconds: int = _DEFAULT_TOLERANCE_SECONDS,
+) -> list[dict[str, Any]]:
+    """Top-N routes inside this cell by missed-arrival count over the
+    same trailing window the compute function uses.  Sorted by missed
+    desc."""
+    window_end   = date.today()
+    window_start = window_end - timedelta(days=window_days)
+
+    rows = conn.execute(text("""
+        SELECT so.agency_id,
+               so.route_id,
+               COUNT(*) AS scheduled,
+               COUNT(*) FILTER (
+                   WHERE so.observed_arrival IS NULL
+                      OR ABS(EXTRACT(EPOCH FROM (
+                            so.observed_arrival - so.scheduled_arrival))) > :tol
+               ) AS missed
+          FROM stop_observations so
+          JOIN stop_cell sc USING (stop_id)
+         WHERE sc.cell_id = :cid
+           AND so.service_date >= :ws
+           AND so.service_date <= :we
+         GROUP BY so.agency_id, so.route_id
+         ORDER BY missed DESC, scheduled DESC
+         LIMIT :lim
+    """), {"cid": cell_id, "tol": tolerance_seconds,
+           "ws": window_start, "we": window_end,
+           "lim": limit}).mappings().all()
+
+    return [{
+        "agency_id":          r["agency_id"],
+        "route_id":           r["route_id"],
+        "scheduled_arrivals": int(r["scheduled"]),
+        "missed_arrivals":    int(r["missed"]),
+        "missed_pct":         round(100.0 * r["missed"] / r["scheduled"], 3)
+                              if r["scheduled"] > 0 else 0.0,
+    } for r in rows]

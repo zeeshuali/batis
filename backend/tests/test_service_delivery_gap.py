@@ -7,6 +7,7 @@ from sqlalchemy import text
 from app.services.service_delivery_gap import (
     _gap_tier,
     compute_service_delivery_gap_for_all_cells,
+    get_route_breakdown_for_cell,
     get_service_delivery_gap_features,
 )
 
@@ -193,3 +194,47 @@ def test_get_features_min_population_filter(db_conn, gap_fixture_cells):
                 if f["properties"]["cell_id"].startswith("test-")}
     assert "test-A" in test_ids
     assert "test-B" not in test_ids
+
+
+def test_route_breakdown_returns_top_n_sorted(db_conn, gap_fixture_cells):
+    # Add two extra routes to test-A so we have something to sort
+    today = date.today()
+    sched_base = datetime.now(timezone.utc) - timedelta(days=10)
+    extras = []
+    try:
+        for route, scheduled, missed in [("R2", 40, 10), ("R3", 20, 2)]:
+            for i in range(scheduled):
+                trip = f"trip-extraA-{route}-{i}"
+                observed = None if i < missed else sched_base + timedelta(minutes=i, seconds=30)
+                db_conn.execute(text(
+                    "INSERT INTO stop_observations "
+                    "(service_date, agency_id, trip_id, route_id, stop_id, "
+                    " scheduled_arrival, observed_arrival) "
+                    "VALUES (:d, 'TEST', :t, :r, 'stop-test-A', :sa, :oa)"
+                ), {"d": today - timedelta(days=10),
+                    "t": trip, "r": route,
+                    "sa": sched_base + timedelta(minutes=i),
+                    "oa": observed})
+                extras.append(trip)
+        db_conn.commit()
+
+        rows = get_route_breakdown_for_cell(db_conn, "test-A", limit=5)
+        # R1 has 100 scheduled / 7 missed; R2 has 40/10; R3 has 20/2
+        # Sorted by missed_arrivals desc: R2 (10) > R1 (7) > R3 (2)
+        # Note: scoped to test cell, so only TEST agency routes appear
+        test_rows = [r for r in rows if r["agency_id"] == "TEST"]
+        assert [r["route_id"] for r in test_rows] == ["R2", "R1", "R3"]
+        assert test_rows[0]["missed_arrivals"] == 10
+        assert test_rows[0]["scheduled_arrivals"] == 40
+        assert "missed_pct" in test_rows[0]
+    finally:
+        if extras:
+            db_conn.execute(text(
+                "DELETE FROM stop_observations WHERE trip_id = ANY(:t)"
+            ), {"t": extras})
+            db_conn.commit()
+
+
+def test_route_breakdown_respects_limit(db_conn, gap_fixture_cells):
+    rows = get_route_breakdown_for_cell(db_conn, "test-A", limit=1)
+    assert len(rows) <= 1
