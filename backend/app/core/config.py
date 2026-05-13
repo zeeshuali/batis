@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     five11_api_key: str | None = None
     five11_base_url: str = "https://api.511.org"
 
+    # Census TIGERweb — authoritative tract polygon REST service
+    tigerweb_base_url: str = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/3/query"
+
     # Backend API key (X-API-Key header for protected endpoints)
     backend_api_key: str | None = None
 

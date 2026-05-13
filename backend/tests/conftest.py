@@ -223,6 +223,11 @@ def _truncate(conn: Connection) -> None:
         "gtfs_trips",
         "gtfs_stops",
         "gtfs_routes",
+        "census_tracts",
+        "gtfs_pathways",
+        "gtfs_levels",
+        "census_ambulatory",
+        "stop_ada_gap",
     ]
     conn.execute(text(f"TRUNCATE {', '.join(tables)} CASCADE"))
 
