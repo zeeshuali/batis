@@ -42,7 +42,11 @@ _INSERT_COLS = (
 _COL_CANDIDATES: dict[str, list[str]] = {
     "service_date":      ["service_date", "service_id", "date", "operating_day"],
     "trip_id":           ["trip_id", "trip"],
-    "stop_id":           ["stop_id", "stop"],
+    # 511.org's stop_observations.txt switched to an edge schema with
+    # (from_stop_id, to_stop_id) columns.  Each row represents an
+    # arrival at to_stop_id from from_stop_id, so to_stop_id is the
+    # one observed_arrival_time refers to — preferred over from_stop_id.
+    "stop_id":           ["stop_id", "to_stop_id", "from_stop_id", "stop"],
     "route_id":          ["route_id", "line_id", "route", "line"],
     "agency_id":         ["agency_id", "operator_id", "agency", "operator"],
     "scheduled_arrival": [
