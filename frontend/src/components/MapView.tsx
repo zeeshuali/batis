@@ -40,7 +40,7 @@ interface LegendItem {
 
 // ─── Layer / source constants ─────────────────────────────────────────────────
 
-const SOURCES = ["reliability-stops", "safety-stops", "crowding-stops", "demand-stops", "coverage-cells", "deserts", "equity-cells", "selected-route", "rt-vehicles", "planner-origin", "planner-dest", "traffic-events", "work-zones", "affected-routes", "workbench-point", "scenario-stops", "fares-origin", "fares-dest"] as const;
+const SOURCES = ["reliability-stops", "safety-stops", "crowding-stops", "demand-stops", "coverage-cells", "deserts", "equity-cells", "selected-route", "rt-vehicles", "planner-origin", "planner-dest", "traffic-events", "work-zones", "affected-routes", "workbench-point", "scenario-stops", "fares-origin", "fares-dest", "fare-burden-cells", "fare-burden-anchors"] as const;
 
 const SECTION_LAYERS: Record<Section, string[]> = {
   // reliability-heat is included here so toggleLayers hides it when leaving these sections.
@@ -69,6 +69,10 @@ const SECTION_LAYERS: Record<Section, string[]> = {
   // destination = red — same colour convention as the planner mode so
   // muscle memory carries over).
   fares:       ["coverage-fill", "coverage-outline", "fares-origin-circle", "fares-dest-circle"],
+  // Fare Burden Mapper: choropleth fill keyed on burden_tier + anchor
+  // diamond markers.  Coverage backdrop suppressed so the burden
+  // colours read clearly.
+  "fare-burden": ["fare-burden-fill", "fare-burden-outline", "fare-burden-anchors-circle"],
 };
 
 const ALL_LAYERS = Object.values(SECTION_LAYERS).flat();
@@ -114,6 +118,19 @@ const COVERAGE_COLOR: mapboxgl.Expression = [
   2,   "#1d4ed8",
   5,   "#38bdf8",
   8,   "#bae6fd",
+];
+
+// Fare Burden choropleth: discrete 4-tier match on burden_tier.  Cells
+// with NULL burden_tier (either reachable_anchor_count = 0 or no
+// median income data yet) get a muted grey so the tooltip can explain
+// why — see Planning → Fare Burden empty-state copy.
+const FARE_BURDEN_COLOR: mapboxgl.Expression = [
+  "match", ["coalesce", ["get", "burden_tier"], "none"],
+  "very_high", "#dc2626",
+  "high",      "#f97316",
+  "moderate",  "#facc15",
+  "low",       "#22c55e",
+  /* else */   "#475569",
 ];
 
 // ─── Legend definitions ───────────────────────────────────────────────────────
@@ -237,6 +254,17 @@ const LEGENDS: Record<Section, { title: string; items: LegendItem[] }> = {
       { color: "#22c55e", label: "Origin pin" },
       { color: "#ef4444", label: "Destination pin" },
       { color: "#bae6fd", label: "Coverage cells (backdrop)", shape: "square" },
+    ],
+  },
+  "fare-burden": {
+    title: "Fare Burden",
+    items: [
+      { color: "#dc2626", label: "Very high (≥15% of income)", shape: "square" },
+      { color: "#f97316", label: "High (10–15%)",              shape: "square" },
+      { color: "#facc15", label: "Moderate (5–10%)",           shape: "square" },
+      { color: "#22c55e", label: "Low (<5%)",                  shape: "square" },
+      { color: "#475569", label: "Unreachable / no data",      shape: "square" },
+      { color: "#3b82f6", label: "Anchor destinations" },
     ],
   },
 };
@@ -615,6 +643,28 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
             setIsEmpty(cellsR.data.features.length === 0 && desertsR.data.features.length === 0);
             break;
           }
+          case "fare-burden": {
+            // Regional choropleth of fare-as-%-of-income.  The backend
+            // returns only the cell polygons; the three anchor destinations
+            // (SF Embarcadero, Oakland 12th St BART, SFO BART) are a fixed
+            // design choice that mirrors fare_burden.py:ANCHORS, so we
+            // synthesize them on the client to avoid an extra round trip.
+            const res = await axios.get<GeoJSON.FeatureCollection>(
+              `${API_BASE}/equity/fare-burden`, { headers: h }
+            );
+            applyGeoJSON("fare-burden-cells", res.data);
+            const anchors: GeoJSON.FeatureCollection = {
+              type: "FeatureCollection",
+              features: [
+                { type: "Feature", geometry: { type: "Point", coordinates: [-122.3970, 37.7929] }, properties: { name: "SF (Embarcadero)" } },
+                { type: "Feature", geometry: { type: "Point", coordinates: [-122.2715, 37.8038] }, properties: { name: "Oakland (12th St BART)" } },
+                { type: "Feature", geometry: { type: "Point", coordinates: [-122.3925, 37.6157] }, properties: { name: "SFO (BART)" } },
+              ],
+            };
+            applyGeoJSON("fare-burden-anchors", anchors);
+            setIsEmpty(res.data.features.length === 0);
+            break;
+          }
         }
       } catch (err: unknown) {
         if (axios.isAxiosError(err)) {
@@ -766,6 +816,37 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
       paint: {
         "line-color":   "rgba(148,163,184,0.12)",
         "line-width":   0.5,
+      },
+    });
+
+    // ── Fare burden choropleth ─────────────────────────────────────────────
+    map.addLayer({
+      id: "fare-burden-fill", type: "fill", source: "fare-burden-cells",
+      layout: { visibility: "none" },
+      paint: {
+        "fill-color":   FARE_BURDEN_COLOR,
+        "fill-opacity": 0.55,
+      },
+    });
+    map.addLayer({
+      id: "fare-burden-outline", type: "line", source: "fare-burden-cells",
+      layout: { visibility: "none" },
+      paint: {
+        "line-color":   "rgba(148,163,184,0.18)",
+        "line-width":   0.5,
+      },
+    });
+    // Anchor markers — diamond-equivalent via a slightly larger circle
+    // with a thick stroke so they read distinctly from the cell fills.
+    map.addLayer({
+      id: "fare-burden-anchors-circle", type: "circle", source: "fare-burden-anchors",
+      layout: { visibility: "none" },
+      paint: {
+        "circle-color":        "#3b82f6",
+        "circle-radius":       9,
+        "circle-stroke-color": "#fff",
+        "circle-stroke-width": 3,
+        "circle-opacity":      0.95,
       },
     });
 

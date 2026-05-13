@@ -30,4 +30,5 @@ export type Section =
   | "equity"
   | "workbench"
   | "scenarios"
-  | "fares";
+  | "fares"
+  | "fare-burden";
