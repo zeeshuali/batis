@@ -286,6 +286,66 @@ def equity_service_delivery_gap_routes(
     return get_route_breakdown_for_cell(conn, cell_id, limit=limit)
 
 
+# ── Sprint 5c → ADA Accessibility Gap ───────────────────────────────────────
+# More-specific paths (/cells, /stops/{id}/breakdown) registered BEFORE the
+# bare /accessibility/gaps collection endpoint per CLAUDE.md convention.
+
+@app.get(
+    "/accessibility/gaps/cells",
+    dependencies=[Depends(api_key_dependency)],
+)
+def accessibility_gaps_cells(
+    min_population: int = Query(default=0, ge=0),
+    limit:          int = Query(default=2000, ge=1, le=10000),
+    conn: Connection = Depends(get_conn),
+):
+    """Cell-rollup heatmap for the ADA Accessibility Gap."""
+    from app.services.ada_accessibility_gap import (
+        get_cell_ada_gap_features,
+    )
+    return {
+        "type": "FeatureCollection",
+        "features": get_cell_ada_gap_features(
+            conn, min_population=min_population, limit=limit
+        ),
+    }
+
+
+@app.get(
+    "/accessibility/gaps/stops/{stop_id}/breakdown",
+    dependencies=[Depends(api_key_dependency)],
+)
+def accessibility_gaps_breakdown(
+    stop_id: str,
+    conn: Connection = Depends(get_conn),
+):
+    """Per-stop drill: routes serving + top-3 contributing tracts."""
+    from app.services.ada_accessibility_gap import (
+        get_stop_ada_gap_breakdown,
+    )
+    return get_stop_ada_gap_breakdown(conn, stop_id)
+
+
+@app.get(
+    "/accessibility/gaps",
+    dependencies=[Depends(api_key_dependency)],
+)
+def accessibility_gaps(
+    tier:  str | None = Query(default=None,
+        description="Filter: low | moderate | high | very_high"),
+    limit: int        = Query(default=5000, ge=1, le=20000),
+    conn: Connection = Depends(get_conn),
+):
+    """Primary ADA Accessibility Gap stops FeatureCollection."""
+    from app.services.ada_accessibility_gap import (
+        get_stop_ada_gap_features,
+    )
+    return {
+        "type": "FeatureCollection",
+        "features": get_stop_ada_gap_features(conn, tier=tier, limit=limit),
+    }
+
+
 # ── Sprint 4a → Fares v2 (debug-only endpoint for now) ──────────────────────
 
 from app.services.fare_calculator import FareRequest as _FareRequest, calculate_fare as _calculate_fare
