@@ -8,6 +8,7 @@ import { AgenciesProvider } from "../context/AgenciesContext";
 import { SelectionProvider, useSelection } from "../context/SelectionContext";
 import { Planning } from "./Planning";
 import { Workbench } from "./planning/Workbench";
+import { Scenarios } from "./planning/Scenarios";
 
 vi.mock("mapbox-gl", () => ({
   default: {
@@ -34,6 +35,17 @@ vi.mock("../lib/api", async () => {
   return {
     ...actual,
     api: {
+      post: vi.fn(async (url: string, body: unknown) => {
+        if (url === "/scenarios") {
+          return { data: {
+            id: 99, name: (body as { name?: string })?.name ?? "untitled",
+            description: null, stops: [{lat:37.85,lng:-122.30}], frequency_min: 12,
+            agency_id: null, created_at: "2026-05-12", updated_at: "2026-05-12",
+          } };
+        }
+        return { data: {} };
+      }),
+      delete: vi.fn(async () => ({ data: { deleted: 1 } })),
       get: vi.fn(async (url: string) => {
         if (url.startsWith("/reliability/summary")) {
           return { data: [
@@ -47,6 +59,19 @@ vi.mock("../lib/api", async () => {
             { geometry: { type: "Point", coordinates: [ -122.265, 37.805 ] },
               properties: { stop_id: "S1", stop_name: "Telegraph & 19th", safety_score: 11 } },
           ] } };
+        }
+        if (url.startsWith("/scenarios/") && url.endsWith("/impact")) {
+          return { data: {
+            scenario_id: 42, stop_count: 2, frequency_min: 12,
+            newly_covered_cells: 4, newly_covered_population: 3200, newly_covered_high_need: 2100,
+            by_tier: { very_high: 1500, high: 600, medium: 700, low: 400 },
+            baseline_covered_cells: 100, scenario_covered_cells: 104,
+          } };
+        }
+        if (url.startsWith("/scenarios")) {
+          return { data: [
+            { id: 42, name: "Telegraph corridor", description: null, stops: [{lat:37.85,lng:-122.30}], frequency_min: 12, agency_id: null, created_at: "2026-05-12", updated_at: "2026-05-12" },
+          ] };
         }
         if (url.startsWith("/safety/stops"))         return { data: [{ stop_id: "S1", stop_name: "Hot Stop", safety_score: 11 }] };
         if (url.startsWith("/crowding/predictions")) return { data: [{ route_id: "51B", crowding_level: "high" }] };
@@ -183,6 +208,27 @@ describe("Planning", () => {
     await waitFor(() =>
       expect(screen.getByText(/The Workbench summarises stops, coverage, and equity/i)).toBeInTheDocument()
     );
+  });
+
+  it("Scenarios sub-page lists existing scenarios and shows the editor form", async () => {
+    window.location.hash = "#planning?sub=scenarios";
+    render(wrap(<Planning />));
+    await waitFor(() => expect(screen.getByText(/Saved scenarios/i)).toBeInTheDocument());
+    expect(screen.getByText(/Telegraph corridor/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Peak headway/i)).toBeInTheDocument();
+  });
+
+  it("Scenarios loading an existing scenario populates the form and fetches impact", async () => {
+    window.location.hash = "#planning?sub=scenarios";
+    render(wrap(<Planning />));
+    await waitFor(() => expect(screen.getByText(/Telegraph corridor/)).toBeInTheDocument());
+    await userEvent.click(screen.getByText(/Telegraph corridor/));
+    // Impact KPIs render once the impact endpoint returns.
+    await waitFor(() => expect(screen.getByText(/Newly reached residents/i)).toBeInTheDocument());
+    expect(screen.getByText("3.2k")).toBeInTheDocument();          // total
+    expect(screen.getByText("2.1k")).toBeInTheDocument();          // high-need
+    expect(screen.getByText(/headway 12 min/i)).toBeInTheDocument();
   });
 
   it("Workbench renders the recommendation + nearby stops once a point is set", async () => {

@@ -40,7 +40,7 @@ interface LegendItem {
 
 // ─── Layer / source constants ─────────────────────────────────────────────────
 
-const SOURCES = ["reliability-stops", "safety-stops", "crowding-stops", "demand-stops", "coverage-cells", "deserts", "equity-cells", "selected-route", "rt-vehicles", "planner-origin", "planner-dest", "traffic-events", "work-zones", "affected-routes", "workbench-point"] as const;
+const SOURCES = ["reliability-stops", "safety-stops", "crowding-stops", "demand-stops", "coverage-cells", "deserts", "equity-cells", "selected-route", "rt-vehicles", "planner-origin", "planner-dest", "traffic-events", "work-zones", "affected-routes", "workbench-point", "scenario-stops"] as const;
 
 const SECTION_LAYERS: Record<Section, string[]> = {
   // reliability-heat is included here so toggleLayers hides it when leaving these sections.
@@ -62,6 +62,9 @@ const SECTION_LAYERS: Record<Section, string[]> = {
   // Workbench piggybacks on the coverage backdrop and adds a click-derived
   // inspection marker that the Planning → Workbench side panel reads from.
   workbench:   ["coverage-fill", "coverage-outline", "workbench-radius", "workbench-point-circle"],
+  // Scenarios piggybacks on the same coverage backdrop, but each click
+  // appends to a list of hypothetical stops drawn from one source.
+  scenarios:   ["coverage-fill", "coverage-outline", "scenario-stops-circle"],
 };
 
 const ALL_LAYERS = Object.values(SECTION_LAYERS).flat();
@@ -217,6 +220,13 @@ const LEGENDS: Record<Section, { title: string; items: LegendItem[] }> = {
       { color: "#bae6fd", label: "Coverage cells (backdrop)", shape: "square" },
     ],
   },
+  scenarios: {
+    title: "Scenarios",
+    items: [
+      { color: "#22c55e", label: "Click to add a hypothetical stop" },
+      { color: "#bae6fd", label: "Coverage cells (backdrop)", shape: "square" },
+    ],
+  },
 };
 
 // ─── Popup HTML builders ──────────────────────────────────────────────────────
@@ -368,7 +378,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   // Read filter + selection from contexts. Local aliases below keep the
   // rest of the ~1,100-line component compiling unchanged.
   const { filters } = useFilters();
-  const { selection, setStopId, setPlannerOrigin, setPlannerDest, resetPlanner, setWorkbenchPoint } = useSelection();
+  const { selection, setStopId, setPlannerOrigin, setPlannerDest, resetPlanner, setWorkbenchPoint, addScenarioStop } = useSelection();
   const { agencies } = useAgencies();
 
   const startDate = filters.startDate;
@@ -392,6 +402,8 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   };
   const workbenchPoint: LatLng | null = selection.workbenchPoint;
   const onWorkbenchMapClick = (lat: number, lng: number) => setWorkbenchPoint({ lat, lng });
+  const scenarioStops = selection.scenarioStops;
+  const onScenarioMapClick = (lat: number, lng: number) => addScenarioStop({ lat, lng });
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef         = useRef<mapboxgl.Map | null>(null);
@@ -404,9 +416,10 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   const activeSectionRef      = useRef(activeSection);
   const dateRangeRef          = useRef(dateRange);
   const onStopClickRef        = useRef(onStopClick);
-  const onPlannerMapClickRef  = useRef(onPlannerMapClick);
+  const onPlannerMapClickRef   = useRef(onPlannerMapClick);
   const onWorkbenchMapClickRef = useRef(onWorkbenchMapClick);
-  const isFirstRenderRef      = useRef(true);
+  const onScenarioMapClickRef  = useRef(onScenarioMapClick);
+  const isFirstRenderRef       = useRef(true);
 
   // Keep refs in sync with props/state
   useEffect(() => { selectedRouteIdRef.current = selectedRouteId; }, [selectedRouteId]);
@@ -416,6 +429,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   useEffect(() => { onStopClickRef.current = onStopClick; }, [onStopClick]);
   useEffect(() => { onPlannerMapClickRef.current = onPlannerMapClick; }, [onPlannerMapClick]);
   useEffect(() => { onWorkbenchMapClickRef.current = onWorkbenchMapClick; }, [onWorkbenchMapClick]);
+  useEffect(() => { onScenarioMapClickRef.current  = onScenarioMapClick;  }, [onScenarioMapClick]);
 
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState<string | null>(null);
@@ -569,9 +583,10 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
             setIsEmpty(false);
             break;
           }
-          case "workbench": {
-            // Workbench renders the coverage backdrop — fetch the hex grid
-            // and the deserts overlay just like the coverage section does.
+          case "workbench":
+          case "scenarios": {
+            // Both modes render the coverage backdrop — fetch the hex grid
+            // and the deserts overlay the same way the coverage section does.
             const [cellsR, desertsR] = await Promise.all([
               axios.get<GeoJSON.FeatureCollection>(`${API_BASE}/coverage/cells`,   { headers: h }),
               axios.get<GeoJSON.FeatureCollection>(`${API_BASE}/coverage/deserts`, { headers: h }),
@@ -902,6 +917,20 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
       },
     });
 
+    // ── Scenario stops marker ──────────────────────────────────────────────
+    // One source, one layer — each click in scenarios mode appends a point.
+    map.addLayer({
+      id: "scenario-stops-circle", type: "circle", source: "scenario-stops",
+      layout: { visibility: "none" },
+      paint: {
+        "circle-color": "#22c55e",
+        "circle-radius": 7,
+        "circle-stroke-width": 3,
+        "circle-stroke-color": "#fff",
+        "circle-opacity": 0.95,
+      },
+    });
+
     // ── Planner map click ──────────────────────────────────────────────────
     map.on("click", (e) => {
       if (activeSectionRef.current !== "planner") return;
@@ -912,6 +941,12 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
     map.on("click", (e) => {
       if (activeSectionRef.current !== "workbench") return;
       onWorkbenchMapClickRef.current(e.lngLat.lat, e.lngLat.lng);
+    });
+
+    // ── Scenarios map click ────────────────────────────────────────────────
+    map.on("click", (e) => {
+      if (activeSectionRef.current !== "scenarios") return;
+      onScenarioMapClickRef.current(e.lngLat.lat, e.lngLat.lng);
     });
 
     // ── Hover interactions (popups only) ───────────────────────────────────
@@ -1117,12 +1152,27 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
     setSource(map, "workbench-point", fc);
   }, [workbenchPoint]);
 
+  // ── Update scenario stops source ─────────────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    const fc: GeoJSON.FeatureCollection = {
+      type: "FeatureCollection",
+      features: scenarioStops.map((s, i) => ({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [s.lng, s.lat] },
+        properties: { index: i },
+      })),
+    };
+    setSource(map, "scenario-stops", fc);
+  }, [scenarioStops]);
+
   // ── Crosshair cursor in planner mode ─────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoadedRef.current) return;
     map.getCanvas().style.cursor =
-      (activeSection === "planner" || activeSection === "workbench") ? "crosshair" : "";
+      (activeSection === "planner" || activeSection === "workbench" || activeSection === "scenarios") ? "crosshair" : "";
   }, [activeSection]);
 
   // ── Filter vehicles layer by selected agencies ────────────────────────────
