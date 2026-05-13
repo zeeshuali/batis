@@ -272,6 +272,60 @@
   border-top: 1px solid var(--color-border);
 }
 
+/* Sprint 4a Phase 3 — Transfer Desert list */
+.planning-deserts__caption {
+  font-size: var(--text-xs);
+  color: var(--color-fg-3);
+  margin: 0 0 var(--space-3);
+}
+.planning-deserts__list {
+  list-style: none;
+  margin: 0; padding: 0;
+  display: flex; flex-direction: column;
+  gap: 6px;
+}
+.planning-deserts__row {
+  padding: 8px var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-1);
+  background: var(--color-bg-1);
+}
+.planning-deserts__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--text-sm);
+  margin-bottom: 4px;
+}
+.planning-deserts__pop {
+  color: var(--color-fg-0);
+  font-weight: 600;
+}
+.planning-deserts__worst {
+  color: var(--color-fg-3);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+}
+.planning-deserts__pairs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: var(--text-xs);
+}
+.planning-deserts__pair {
+  display: inline-flex;
+  gap: 3px;
+  padding: 1px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+.planning-deserts__more {
+  color: var(--color-fg-3);
+  padding: 1px 6px;
+}
+
 /* Scenarios builder — editor form */
 .planning-scenarios__form {
   display: flex;

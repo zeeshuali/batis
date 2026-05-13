@@ -244,6 +244,38 @@ def fares_products(
 
 # ── Sprint 4a → Transfer reliability ────────────────────────────────────────
 
+@app.get("/transfers/deserts", dependencies=[Depends(api_key_dependency)])
+def transfers_deserts(
+    agencies: Optional[str] = Query(default=None, description="Comma-separated agency_ids; defaults to all has_data=true"),
+    min_population: int = Query(default=0, ge=0),
+    desert_threshold_m: int = Query(default=800, ge=100, le=5000),
+    close_enough_m: int = Query(default=2000, ge=100, le=10000),
+    max_search_m: int = Query(default=3000, ge=100, le=20000),
+    limit: int = Query(default=1000, ge=1, le=5000),
+    conn: Connection = Depends(get_conn),
+):
+    """GeoJSON FeatureCollection of cells that are transfer deserts.
+
+    A cell is a desert for agency pair (A, B) when one agency is reachable
+    within `close_enough_m` but the other is farther than `desert_threshold_m`.
+    `max_search_m` bounds how far we look for either agency's stop — beyond
+    that an agency is "not relevant to this cell" rather than "missing".
+    Sorted by population × number-of-deserts so the highest-impact cells
+    surface first."""
+    from app.services.transfer_deserts import compute_transfer_deserts, transfer_deserts_geojson
+    agency_list = [a.strip() for a in agencies.split(",") if a.strip()] if agencies else None
+    rows = compute_transfer_deserts(
+        conn,
+        agencies=agency_list,
+        min_population=min_population,
+        desert_threshold_m=desert_threshold_m,
+        close_enough_m=close_enough_m,
+        max_search_m=max_search_m,
+        limit=limit,
+    )
+    return transfer_deserts_geojson(rows)
+
+
 @app.get("/transfers/reliability", dependencies=[Depends(api_key_dependency)])
 def transfers_reliability(
     from_agency: Optional[str] = Query(default=None),

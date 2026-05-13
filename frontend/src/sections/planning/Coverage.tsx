@@ -5,6 +5,7 @@ import {
   type DataListItem,
 } from "../../components/primitives";
 import { SectionMap } from "../../components/SectionMap";
+import { TransferDesertsPanel } from "./TransferDesertsPanel";
 import "../sections.css";
 import "./planning.css";
 
@@ -223,6 +224,8 @@ export const Coverage: React.FC = () => {
           )}
         </div>
       </div>
+
+      <TransferDesertsPanel />
     </div>
   );
 };
