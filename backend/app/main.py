@@ -219,6 +219,41 @@ def scenarios_delete(scenario_id: int, conn: Connection = Depends(get_conn)):
 
 # ── Sprint 4a → Fares v2 (debug-only endpoint for now) ──────────────────────
 
+from app.services.fare_calculator import FareRequest as _FareRequest, calculate_fare as _calculate_fare
+from app.services.fare_sampler import (
+    SampleCorridorRequest as _SampleCorridorRequest,
+    sample_corridor as _sample_corridor,
+)
+
+
+@app.post("/fares/sample-corridor", dependencies=[Depends(api_key_dependency)])
+def fares_sample_corridor(
+    payload: _SampleCorridorRequest,
+    conn: Connection = Depends(get_conn),
+):
+    """Sample up to `n` single-agency OD pairs between the two clicks and
+    return summary stats + equity breakdown.  v1 doesn't traverse multi-
+    agency transfers — corridors that span unconnected networks return a
+    `notice` and zero rows."""
+    result = _sample_corridor(conn, payload.origin, payload.destination, n=payload.n)
+    return result
+
+
+@app.post("/fares/calculate", dependencies=[Depends(api_key_dependency)])
+def fares_calculate(
+    payload: _FareRequest,
+    conn: Connection = Depends(get_conn),
+):
+    """Sum the fare across a list of legs. v1 has no transfer discounts;
+    sum-of-legs is structurally correct for current Bay Area fare data
+    (Clipper transfer credits are rider-pass-layer, not fare-rule-layer).
+
+    Each leg result includes `matched_by` so the UI can mark structurally-
+    less-certain matches (anything past `route_only`).  Closed value set
+    is in app.services.fare_calculator.MATCHED_BY_VALUES."""
+    return _calculate_fare(conn, payload.legs)
+
+
 @app.get("/fares/products", dependencies=[Depends(api_key_dependency)])
 def fares_products(
     agency_id: Optional[str] = Query(default=None),
