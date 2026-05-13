@@ -1474,3 +1474,185 @@ def get_traffic_transit_impact(conn: Connection) -> list[dict]:
             d["affected_stop_ids"] = list(d["affected_stop_ids"])
         result.append(d)
     return result
+
+
+# ── Planning → Scenarios builder ──────────────────────────────────────────────
+#
+# Scenarios are hypothetical service additions (a list of new stops at lat/lng
+# with a service frequency). The impact computation uses a *radius-coverage
+# model*: a coverage cell counts as "newly covered" if its centroid falls
+# within SCENARIO_COVERAGE_RADIUS_M of any scenario stop AND it wasn't already
+# covered by an existing stop. Equivalent to the Coverage page's composite
+# logic, but applied to a hypothetical stop set.
+#
+# Why radius-coverage instead of true GTFS isochrones?
+#   - PostGIS does it correctly in one CTE: ST_DWithin(geom::geography, …, m).
+#   - True isochrones need a routing graph (OSRM/Valhalla) we don't have.
+#   - The radius model is the same one the existing Coverage page uses for the
+#     baseline, so deltas are computed against an internally consistent metric.
+
+SCENARIO_COVERAGE_RADIUS_M = 400
+
+
+def list_scenarios(conn: Connection) -> List[Dict[str, Any]]:
+    """All scenarios, newest first. Powers GET /scenarios."""
+    rows = conn.execute(text("""
+        SELECT id, name, description, stops, frequency_min, agency_id,
+               created_at, updated_at
+        FROM scenarios
+        ORDER BY created_at DESC
+    """)).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def get_scenario(conn: Connection, scenario_id: int) -> Optional[Dict[str, Any]]:
+    """Single scenario by id, or None if missing."""
+    row = conn.execute(text("""
+        SELECT id, name, description, stops, frequency_min, agency_id,
+               created_at, updated_at
+        FROM scenarios
+        WHERE id = :id
+    """), {"id": scenario_id}).mappings().first()
+    return dict(row) if row else None
+
+
+def create_scenario(
+    conn: Connection,
+    name: str,
+    stops: List[Dict[str, Any]],
+    frequency_min: int = 15,
+    description: Optional[str] = None,
+    agency_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Insert a scenario; returns the persisted row."""
+    import json
+    row = conn.execute(text("""
+        INSERT INTO scenarios (name, description, stops, frequency_min, agency_id)
+        VALUES (:name, :description, CAST(:stops AS jsonb), :frequency_min, :agency_id)
+        RETURNING id, name, description, stops, frequency_min, agency_id,
+                  created_at, updated_at
+    """), {
+        "name": name,
+        "description": description,
+        "stops": json.dumps(stops),
+        "frequency_min": frequency_min,
+        "agency_id": agency_id,
+    }).mappings().first()
+    return dict(row) if row else {}
+
+
+def delete_scenario(conn: Connection, scenario_id: int) -> bool:
+    """Delete a scenario; returns True if a row was removed."""
+    result = conn.execute(text("""
+        DELETE FROM scenarios WHERE id = :id
+    """), {"id": scenario_id})
+    return result.rowcount > 0
+
+
+def compute_scenario_impact(
+    conn: Connection,
+    scenario_id: int,
+) -> Optional[Dict[str, Any]]:
+    """Coverage / equity delta vs baseline for a scenario.
+
+    Baseline-covered = coverage_cells with distance_to_nearest_stop_m ≤ 400.
+    Scenario-covered = coverage_cells whose geom is within 400 m of any
+    scenario stop. Newly covered = scenario_covered − baseline_covered.
+
+    Returns aggregates per equity tier (population reached, cell counts) plus
+    the scenario's own stop_count and frequency_min so the frontend can render
+    the delta panel without a second round-trip.
+    """
+    scenario = get_scenario(conn, scenario_id)
+    if scenario is None:
+        return None
+
+    stops = scenario.get("stops") or []
+    if not isinstance(stops, list) or len(stops) == 0:
+        # No stops → no impact, but still return a well-formed shape so the
+        # frontend doesn't have to special-case the "I just created it" state.
+        return {
+            "scenario_id":              scenario_id,
+            "stop_count":               0,
+            "frequency_min":            scenario.get("frequency_min"),
+            "newly_covered_cells":      0,
+            "newly_covered_population": 0,
+            "newly_covered_high_need":  0,
+            "by_tier":                  {"very_high": 0, "high": 0, "medium": 0, "low": 0},
+            "baseline_covered_cells":   0,
+            "scenario_covered_cells":   0,
+        }
+
+    import json
+    row = conn.execute(text("""
+        WITH scenario_points AS (
+            SELECT
+                (s.value ->> 'lat')::float AS lat,
+                (s.value ->> 'lng')::float AS lng
+            FROM jsonb_array_elements(CAST(:stops AS jsonb)) AS s(value)
+        ),
+        scenario_geoms AS (
+            SELECT ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography AS g
+            FROM scenario_points
+            WHERE lat IS NOT NULL AND lng IS NOT NULL
+        ),
+        scenario_covered AS (
+            SELECT DISTINCT cc.cell_id
+            FROM coverage_cells cc
+            JOIN scenario_geoms sg
+              ON ST_DWithin(cc.geom::geography, sg.g, :radius)
+        ),
+        baseline_covered AS (
+            SELECT cell_id
+            FROM coverage_cells
+            WHERE distance_to_nearest_stop_m IS NOT NULL
+              AND distance_to_nearest_stop_m <= :radius
+        ),
+        newly_covered AS (
+            SELECT cell_id FROM scenario_covered
+            EXCEPT
+            SELECT cell_id FROM baseline_covered
+        ),
+        newly_covered_cells AS (
+            SELECT
+                cc.cell_id,
+                COALESCE(cc.population, 0)        AS population,
+                COALESCE(cc.equity_score, 0)      AS equity_score,
+                CASE
+                    WHEN COALESCE(cc.equity_score, 0) >= 0.25 THEN 'very_high'
+                    WHEN COALESCE(cc.equity_score, 0) >= 0.15 THEN 'high'
+                    WHEN COALESCE(cc.equity_score, 0) >= 0.08 THEN 'medium'
+                    ELSE 'low'
+                END AS equity_tier
+            FROM coverage_cells cc
+            JOIN newly_covered nc USING (cell_id)
+        )
+        SELECT
+            (SELECT COUNT(*) FROM baseline_covered) AS baseline_covered_cells,
+            (SELECT COUNT(*) FROM scenario_covered) AS scenario_covered_cells,
+            COUNT(*)                                  AS newly_covered_cells,
+            COALESCE(SUM(population), 0)              AS newly_covered_population,
+            COALESCE(SUM(CASE WHEN equity_tier IN ('very_high', 'high') THEN population ELSE 0 END), 0) AS newly_covered_high_need,
+            COALESCE(SUM(CASE WHEN equity_tier = 'very_high' THEN population ELSE 0 END), 0) AS pop_very_high,
+            COALESCE(SUM(CASE WHEN equity_tier = 'high'      THEN population ELSE 0 END), 0) AS pop_high,
+            COALESCE(SUM(CASE WHEN equity_tier = 'medium'    THEN population ELSE 0 END), 0) AS pop_medium,
+            COALESCE(SUM(CASE WHEN equity_tier = 'low'       THEN population ELSE 0 END), 0) AS pop_low
+        FROM newly_covered_cells
+    """), {"stops": json.dumps(stops), "radius": SCENARIO_COVERAGE_RADIUS_M}).mappings().first()
+
+    return {
+        "scenario_id":              scenario_id,
+        "stop_count":               len(stops),
+        "frequency_min":            scenario.get("frequency_min"),
+        "newly_covered_cells":      int(row["newly_covered_cells"] or 0),
+        "newly_covered_population": int(row["newly_covered_population"] or 0),
+        "newly_covered_high_need":  int(row["newly_covered_high_need"] or 0),
+        "by_tier": {
+            "very_high": int(row["pop_very_high"] or 0),
+            "high":      int(row["pop_high"]      or 0),
+            "medium":    int(row["pop_medium"]    or 0),
+            "low":       int(row["pop_low"]       or 0),
+        },
+        "baseline_covered_cells": int(row["baseline_covered_cells"] or 0),
+        "scenario_covered_cells": int(row["scenario_covered_cells"] or 0),
+    }

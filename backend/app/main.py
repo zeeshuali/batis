@@ -3,13 +3,19 @@ from contextlib import asynccontextmanager
 from datetime import date
 from typing import List, Optional, Tuple
 
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 
 from app.core.config import get_settings
 from app.db import get_engine
 from app.services.analysis import (
+    compute_scenario_impact,
+    create_scenario,
+    delete_scenario,
+    get_scenario,
+    list_scenarios,
     get_agencies_list,
     get_agencies_rollup,
     get_agency_otp_benchmarks,
@@ -147,6 +153,67 @@ def agencies_rollup(
 @app.get("/agencies", dependencies=[Depends(api_key_dependency)])
 def agencies_list(conn: Connection = Depends(get_conn)):
     return get_agencies_list(conn)
+
+
+# ── Planning → Scenarios builder ─────────────────────────────────────────────
+# NOTE: register /scenarios/{scenario_id}/impact BEFORE /scenarios/{scenario_id}
+# (same precedence lesson as /routes/compare vs /routes/{route_id}/geo above).
+
+class ScenarioStop(BaseModel):
+    lat: float
+    lng: float
+    label: Optional[str] = None
+
+
+class ScenarioCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    stops: List[ScenarioStop] = []
+    frequency_min: int = 15
+    agency_id: Optional[str] = None
+
+
+@app.get("/scenarios", dependencies=[Depends(api_key_dependency)])
+def scenarios_list(conn: Connection = Depends(get_conn)):
+    return list_scenarios(conn)
+
+
+@app.post("/scenarios", dependencies=[Depends(api_key_dependency)])
+def scenarios_create(payload: ScenarioCreate, conn: Connection = Depends(get_conn)):
+    with conn.begin():
+        return create_scenario(
+            conn,
+            name=payload.name,
+            description=payload.description,
+            stops=[s.model_dump() for s in payload.stops],
+            frequency_min=payload.frequency_min,
+            agency_id=payload.agency_id,
+        )
+
+
+@app.get("/scenarios/{scenario_id}/impact", dependencies=[Depends(api_key_dependency)])
+def scenarios_impact(scenario_id: int, conn: Connection = Depends(get_conn)):
+    impact = compute_scenario_impact(conn, scenario_id)
+    if impact is None:
+        raise HTTPException(status_code=404, detail=f"Scenario {scenario_id} not found")
+    return impact
+
+
+@app.get("/scenarios/{scenario_id}", dependencies=[Depends(api_key_dependency)])
+def scenarios_get(scenario_id: int, conn: Connection = Depends(get_conn)):
+    s = get_scenario(conn, scenario_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail=f"Scenario {scenario_id} not found")
+    return s
+
+
+@app.delete("/scenarios/{scenario_id}", dependencies=[Depends(api_key_dependency)])
+def scenarios_delete(scenario_id: int, conn: Connection = Depends(get_conn)):
+    with conn.begin():
+        ok = delete_scenario(conn, scenario_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Scenario {scenario_id} not found")
+    return {"deleted": scenario_id}
 
 
 @app.get("/reliability/summary", dependencies=[Depends(api_key_dependency)])

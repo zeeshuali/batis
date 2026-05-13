@@ -446,6 +446,22 @@ CREATE TABLE IF NOT EXISTS agencies (
 
 CREATE INDEX IF NOT EXISTS idx_agencies_monitored ON agencies (monitored);
 
+-- === Planning scenarios (Planning → Scenarios builder) ===
+
+CREATE TABLE IF NOT EXISTS scenarios (
+    id             serial PRIMARY KEY,
+    name           text NOT NULL,
+    description    text,
+    stops          jsonb NOT NULL DEFAULT '[]'::jsonb,
+    frequency_min  integer NOT NULL DEFAULT 15,
+    agency_id      text,
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    updated_at     timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_scenarios_created_at ON scenarios (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scenarios_agency_id  ON scenarios (agency_id);
+
 -- === Data health views ===
 
 DO $$
