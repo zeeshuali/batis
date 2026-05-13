@@ -16,6 +16,29 @@ from app.core.config import get_settings
 from app.db import get_engine
 
 
+# Any GTFS-RT `arr.delay` outside ±2 hours is treated as corrupt and dropped
+# (we set delay_seconds = NULL rather than skip the row, so the stop event
+# itself is still recorded).  Some agencies' feeds emit huge negative deltas
+# when their internal `scheduled_time` is uninitialised — see the prior bug
+# where SF Muni rows accumulated delay_seconds = -70 million.
+_MAX_PLAUSIBLE_DELAY_SECONDS = 7200
+
+
+def _strip_agency_prefix(value: str | None, agency_id: str | None) -> str | None:
+    """511.org's regional feed namespaces trip_id / route_id with `{agency}:`
+    (e.g. `SF:11996421_M11`), but the static GTFS we load stores the raw
+    ids (`11996421_M11`).  Joining the two requires the same form on both
+    sides — strip the agency prefix on the RT side so lookups against
+    gtfs_stop_times / gtfs_routes succeed.
+
+    A no-op for feeds that don't prefix.
+    """
+    if not value or not agency_id:
+        return value or None
+    prefix = f"{agency_id}:"
+    return value[len(prefix):] if value.startswith(prefix) else value
+
+
 def _build_vehicle_url() -> str:
     s = get_settings()
     return f"{s.five11_base_url}/Transit/VehiclePositions?api_key={s.five11_api_key}&agency=RG"
@@ -61,11 +84,12 @@ def _insert_vehicle_positions(conn: Connection, feed: gtfs_realtime_pb2.FeedMess
         trip = v.trip
         route_id = (trip.route_id or None) if trip else None
 
+        agency_id = _extract_agency_id(trip, route_id) if trip else "AC"
         row = {
-            "agency_id": _extract_agency_id(trip, route_id) if trip else "AC",
+            "agency_id": agency_id,
             "vehicle_id": v.vehicle.id if v.vehicle and v.vehicle.id else None,
-            "trip_id": (trip.trip_id or None) if trip else None,
-            "route_id": route_id,
+            "trip_id": _strip_agency_prefix((trip.trip_id or None) if trip else None, agency_id),
+            "route_id": _strip_agency_prefix(route_id, agency_id),
             "timestamp": ts_dt,
             "latitude": pos.latitude if pos else None,
             "longitude": pos.longitude if pos else None,
@@ -185,8 +209,8 @@ def _process_trip_updates(conn: Connection, feed: gtfs_realtime_pb2.FeedMessage)
             continue
         tu = entity.trip_update
         trip_desc = tu.trip
-        trip_id = trip_desc.trip_id or None
-        route_id = trip_desc.route_id or None
+        trip_id  = _strip_agency_prefix(trip_desc.trip_id  or None, agency_id)
+        route_id = _strip_agency_prefix(trip_desc.route_id or None, agency_id)
         if not trip_id:
             continue
         trip_ids.add(trip_id)
@@ -201,7 +225,7 @@ def _process_trip_updates(conn: Connection, feed: gtfs_realtime_pb2.FeedMessage)
                 pass
 
         for stu in tu.stop_time_update:
-            stop_id = stu.stop_id or None
+            stop_id = _strip_agency_prefix(stu.stop_id or None, agency_id)
             stop_sequence = stu.stop_sequence if stu.stop_sequence else None
 
             delay_seconds = None
@@ -250,9 +274,22 @@ def _process_trip_updates(conn: Connection, feed: gtfs_realtime_pb2.FeedMessage)
         sched_time_str = scheduled.get(key) if key else None
         scheduled_arrival = _parse_gtfs_time(u["service_date"], sched_time_str) if sched_time_str else None
 
+        # Validate delay_seconds.
+        # 1. If we couldn't resolve a scheduled_arrival, we have no way to
+        #    sanity-check the delta the feed gave us — null it out.
+        # 2. If the feed gave us a delay outside ±2 hours, it's bogus
+        #    (a real-world transit delay > 2h is data corruption, not service).
+        #    Several agencies' GTFS-RT feeds occasionally emit huge negative
+        #    deltas when their internal `scheduled_time` is uninitialised.
+        delay = u["delay_seconds"]
+        if scheduled_arrival is None or delay is None:
+            delay = None
+        elif abs(delay) > _MAX_PLAUSIBLE_DELAY_SECONDS:
+            delay = None
+
         actual_arrival = u["actual_arrival"]
-        if actual_arrival is None and scheduled_arrival is not None and u["delay_seconds"] is not None:
-            actual_arrival = scheduled_arrival + timedelta(seconds=u["delay_seconds"])
+        if actual_arrival is None and scheduled_arrival is not None and delay is not None:
+            actual_arrival = scheduled_arrival + timedelta(seconds=delay)
 
         final_rows.append(
             {
@@ -264,7 +301,7 @@ def _process_trip_updates(conn: Connection, feed: gtfs_realtime_pb2.FeedMessage)
                 "stop_sequence": u["stop_sequence"],
                 "scheduled_arrival": scheduled_arrival,
                 "actual_arrival": actual_arrival,
-                "delay_seconds": u["delay_seconds"],
+                "delay_seconds": delay,
                 "headway_seconds": None,
                 "occupancy_level": None,
             }
