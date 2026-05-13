@@ -36,9 +36,14 @@ _DEFAULT_TOLERANCE_SECONDS = 5 * 60
 
 
 def _tolerance_seconds() -> int:
-    """Read the tolerance window from Settings, falling back to default."""
+    """Read the tolerance window from Settings.
+
+    The setting is typed `int` (non-Optional) and defaults to 300, so
+    pydantic-settings guarantees an int at runtime.  A configured 0 is
+    valid (=strictest possible: every late arrival counts as missed).
+    """
     from app.core.config import get_settings
-    return get_settings().delivery_gap_tolerance_seconds or _DEFAULT_TOLERANCE_SECONDS
+    return get_settings().delivery_gap_tolerance_seconds
 
 
 def compute_service_delivery_gap_for_all_cells(
