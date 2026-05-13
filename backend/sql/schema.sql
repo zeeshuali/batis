@@ -591,3 +591,32 @@ CREATE TABLE IF NOT EXISTS fare_burden (
 CREATE INDEX IF NOT EXISTS idx_fare_burden_reachable
     ON fare_burden (reachable_anchor_count)
     WHERE reachable_anchor_count > 0;
+
+-- ── Sprint 5b — Service Delivery Gap Map ────────────────────────────────────
+-- Mirror of migrations/007_service_delivery_gap.sql so fresh installs
+-- pick this up without running migrations.
+
+CREATE TABLE IF NOT EXISTS service_delivery_gap (
+  cell_id            text PRIMARY KEY,
+  scheduled_arrivals integer NOT NULL,
+  missed_arrivals    integer NOT NULL,
+  gap_pct            numeric(6,3) NOT NULL,
+  window_start       date NOT NULL,
+  window_end         date NOT NULL,
+  computed_at        timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS ix_service_delivery_gap_gap_pct
+  ON service_delivery_gap (gap_pct DESC);
+
+CREATE INDEX IF NOT EXISTS ix_stop_observations_route_date
+  ON stop_observations (route_id, service_date);
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS stop_cell AS
+  SELECT s.stop_id, c.cell_id
+  FROM gtfs_stops s
+  JOIN coverage_cells c
+    ON ST_Contains(c.geom, s.geom);
+
+CREATE INDEX IF NOT EXISTS ix_stop_cell_cell ON stop_cell (cell_id);
+CREATE INDEX IF NOT EXISTS ix_stop_cell_stop ON stop_cell (stop_id);

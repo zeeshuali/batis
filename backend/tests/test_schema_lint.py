@@ -8,6 +8,8 @@ from __future__ import annotations
 import os
 import re
 
+from sqlalchemy import text
+
 
 _SCHEMA_PATH = os.path.join(
     os.path.dirname(__file__), "..", "sql", "schema.sql"
@@ -51,3 +53,18 @@ def test_postgis_extension_declared():
         sql,
         re.IGNORECASE,
     ), "schema.sql is missing `CREATE EXTENSION IF NOT EXISTS postgis;`."
+
+
+def test_service_delivery_gap_table_exists(db_conn):
+    row = db_conn.execute(text(
+        "SELECT 1 FROM information_schema.tables "
+        "WHERE table_name = 'service_delivery_gap'"
+    )).first()
+    assert row is not None, "migration 007 not applied"
+
+
+def test_stop_cell_view_exists(db_conn):
+    row = db_conn.execute(text(
+        "SELECT 1 FROM pg_matviews WHERE matviewname = 'stop_cell'"
+    )).first()
+    assert row is not None, "stop_cell materialized view missing"
