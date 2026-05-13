@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # everything else counts as missed.  Default 300 (=±5 min).
     delivery_gap_tolerance_seconds: int = 300
 
+    ada_catchment_radius_m:       int   = 400
+    ada_tier_percentile_high:     float = 0.90
+    ada_tier_percentile_moderate: float = 0.75
+    ada_tier_percentile_low:      float = 0.50
+
     # AI / RAG
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"

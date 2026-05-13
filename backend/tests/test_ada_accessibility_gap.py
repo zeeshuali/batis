@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy import text
 
 from app.services.ada_accessibility_gap import _gap_tier, _supply_penalty
 
@@ -61,3 +62,171 @@ def test_gap_tier_boundaries_inclusive_at_lower_edge():
     assert _gap_tier(100.0, p90=100, p75=50, p50=20) == "very_high"
     assert _gap_tier(50.0,  p90=100, p75=50, p50=20) == "high"
     assert _gap_tier(20.0,  p90=100, p75=50, p50=20) == "moderate"
+
+
+# ── Integration: compute_stop_ada_gap_for_all_stops + refresh_cell_ada_gap ───
+
+from app.services.ada_accessibility_gap import (
+    compute_stop_ada_gap_for_all_stops,
+    refresh_cell_ada_gap,
+)
+
+
+@pytest.fixture
+def ada_fixture(db_conn):
+    """Seed 4 stops in 2 tracts and 2 cells:
+
+      stop-A: wheelchair_boarding=2, in tract T1 (amb_pop=300) → high score
+      stop-B: wheelchair_boarding=1, in tract T1                → score 0
+      stop-C: wheelchair_boarding=0, in tract T2 (amb_pop=100) → mid score
+      stop-D: wheelchair_boarding=1, location_type=1, has_pathways but
+              no accessible path → Pathways override fires.
+    """
+    try:
+        # Tract geometry — two tiny squares well-separated so a 400m buffer
+        # at stop-A doesn't reach test-T2 etc.
+        db_conn.execute(text("""
+          INSERT INTO census_tracts (tract_geoid, county_fips, geom, computed_at)
+          VALUES
+            ('test-T1', '001',
+              ST_Multi(ST_GeomFromText('POLYGON((0 0, 0 0.01, 0.01 0.01, 0.01 0, 0 0))', 4326)),
+              now()),
+            ('test-T2', '001',
+              ST_Multi(ST_GeomFromText('POLYGON((1 0, 1 0.01, 1.01 0.01, 1.01 0, 1 0))', 4326)),
+              now())
+          ON CONFLICT (tract_geoid) DO NOTHING
+        """))
+
+        # Demand data
+        db_conn.execute(text("""
+          INSERT INTO census_ambulatory (tract_geoid, ambulatory_pop, total_pop, computed_at)
+          VALUES
+            ('test-T1', 300, 1000, now()),
+            ('test-T2', 100, 1000, now())
+          ON CONFLICT (tract_geoid) DO UPDATE
+            SET ambulatory_pop = EXCLUDED.ambulatory_pop
+        """))
+
+        # Stops — coords chosen so each stop's 400m buffer intersects its
+        # tract but not the other.
+        rows = [
+            ("test-stop-A", "TESTADA", 2, 0,   0.005, 0.005),
+            ("test-stop-B", "TESTADA", 1, 0,   0.006, 0.005),
+            ("test-stop-C", "TESTADA", 0, 0,   1.005, 0.005),
+            ("test-stop-D", "TESTADA", 1, 1,   0.0055, 0.0055),
+        ]
+        for sid, aid, wb, lt, lon, lat in rows:
+            db_conn.execute(text("""
+              INSERT INTO gtfs_stops
+                (stop_id, agency_id, stop_name, location_type,
+                 wheelchair_boarding, geom)
+              VALUES (:sid, :aid, 'Test', :lt, :wb,
+                      ST_SetSRID(ST_MakePoint(:lon, :lat), 4326))
+              ON CONFLICT (stop_id) DO UPDATE
+                SET location_type        = EXCLUDED.location_type,
+                    wheelchair_boarding  = EXCLUDED.wheelchair_boarding,
+                    geom                 = EXCLUDED.geom
+            """), {"sid": sid, "aid": aid, "lt": lt, "wb": wb,
+                   "lon": lon, "lat": lat})
+
+        # Pathways for stop-D: stairs-only edge → has_accessible_pathway=False
+        db_conn.execute(text("""
+          INSERT INTO gtfs_pathways
+            (agency_id, pathway_id, from_stop_id, to_stop_id, pathway_mode)
+          VALUES ('TESTADA', 'pwD', 'test-stop-D', 'test-stop-D-platform', 2)
+          ON CONFLICT (agency_id, pathway_id) DO NOTHING
+        """))
+
+        # Seed a coverage_cell for the cell rollup test.
+        # The cell polygon fully contains stops A, B, and D
+        # (all near (0.005-0.006, 0.005-0.006)).
+        # coverage_cells has no unique constraint on cell_id so we cannot use
+        # ON CONFLICT; seed_db truncates the table before each test so a plain
+        # INSERT is safe.
+        db_conn.execute(text("""
+          INSERT INTO coverage_cells (cell_id, geom, population, equity_score)
+          VALUES ('test-cellA',
+                  ST_GeomFromText('POLYGON((0 0, 0 0.02, 0.02 0.02, 0.02 0, 0 0))', 4326),
+                  500, 0.4)
+        """))
+
+        db_conn.commit()
+
+        # Refresh stop_cell so the new coverage_cells + stops are reflected.
+        db_conn.execute(text("REFRESH MATERIALIZED VIEW stop_cell"))
+        db_conn.commit()
+
+        yield rows
+    finally:
+        db_conn.execute(text("DELETE FROM stop_ada_gap WHERE stop_id LIKE 'test-stop-%'"))
+        db_conn.execute(text("DELETE FROM gtfs_pathways WHERE agency_id = 'TESTADA'"))
+        db_conn.execute(text("DELETE FROM gtfs_stops WHERE stop_id LIKE 'test-stop-%'"))
+        db_conn.execute(text("DELETE FROM census_ambulatory WHERE tract_geoid LIKE 'test-T%'"))
+        db_conn.execute(text("DELETE FROM census_tracts WHERE tract_geoid LIKE 'test-T%'"))
+        db_conn.execute(text("DELETE FROM coverage_cells WHERE cell_id = 'test-cellA'"))
+        db_conn.commit()
+        # Re-refresh so the materialized view doesn't hold stale test data
+        db_conn.execute(text("REFRESH MATERIALIZED VIEW stop_cell"))
+        db_conn.commit()
+
+
+def test_compute_writes_per_stop_rows(db_conn, ada_fixture):
+    n = compute_stop_ada_gap_for_all_stops(db_conn)
+    db_conn.commit()
+    assert n >= 4   # at least our 4 seeded stops
+
+    rows = db_conn.execute(text(
+        "SELECT stop_id, supply_penalty, ambulatory_pop_400m, pathways_override "
+        "FROM stop_ada_gap WHERE stop_id LIKE 'test-stop-%' ORDER BY stop_id"
+    )).all()
+    by_stop = {r[0]: r for r in rows}
+
+    # stop-A: wheelchair_boarding=2 → supply_penalty=1.0
+    assert float(by_stop["test-stop-A"][1]) == 1.0
+    # stop-B: wheelchair_boarding=1, no pathways override → 0.0
+    assert float(by_stop["test-stop-B"][1]) == 0.0
+    # stop-C: wheelchair_boarding=0 → 0.5
+    assert float(by_stop["test-stop-C"][1]) == 0.5
+    # stop-D: pathways override (rail + stairs-only) → 1.0
+    assert float(by_stop["test-stop-D"][1]) == 1.0
+    assert by_stop["test-stop-D"][3] is True   # pathways_override=true
+
+
+def test_compute_gap_score_is_supply_times_demand(db_conn, ada_fixture):
+    compute_stop_ada_gap_for_all_stops(db_conn)
+    db_conn.commit()
+    row = db_conn.execute(text(
+        "SELECT supply_penalty, ambulatory_pop_400m, gap_score "
+        "FROM stop_ada_gap WHERE stop_id = 'test-stop-A'"
+    )).fetchone()
+    assert row is not None
+    sp, demand, score = float(row[0]), int(row[1]), float(row[2])
+    assert score == round(sp * demand, 2)
+
+
+def test_compute_is_idempotent(db_conn, ada_fixture):
+    n1 = compute_stop_ada_gap_for_all_stops(db_conn); db_conn.commit()
+    n2 = compute_stop_ada_gap_for_all_stops(db_conn); db_conn.commit()
+    assert n1 == n2
+
+    cnt = db_conn.execute(text(
+        "SELECT COUNT(*) FROM stop_ada_gap WHERE stop_id LIKE 'test-stop-%'"
+    )).scalar()
+    assert cnt == 4   # not 8
+
+
+def test_refresh_cell_ada_gap_populates_view(db_conn, ada_fixture):
+    compute_stop_ada_gap_for_all_stops(db_conn)
+    db_conn.commit()
+    refresh_cell_ada_gap(db_conn)
+    db_conn.commit()
+
+    row = db_conn.execute(text(
+        "SELECT stop_count, max_gap_score, worst_tier "
+        "FROM cell_ada_gap WHERE cell_id = 'test-cellA'"
+    )).fetchone()
+    assert row is not None
+    assert row[0] == 3   # A, B, D mapped to this cell
+    # max gap_score in test-cellA is whichever of A (1.0×demand) or D
+    # (1.0×demand) is larger; both > 0 → max > 0.
+    assert float(row[1]) > 0

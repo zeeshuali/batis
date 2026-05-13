@@ -58,3 +58,165 @@ def _gap_tier(score: float, *, p90: float, p75: float, p50: float) -> str:
     if score >= p50:
         return "moderate"
     return "low"
+
+
+def _catchment_radius() -> int:
+    """Read the per-stop catchment radius from Settings.
+
+    Field is typed `int` (non-Optional, default 400), so pydantic-
+    settings guarantees an int at runtime.  Falsy-zero is left alone
+    on purpose — a configured 0 would be a misconfiguration but not
+    silently rewritten.
+    """
+    from app.core.config import get_settings
+    return get_settings().ada_catchment_radius_m
+
+
+def _percentile_thresholds() -> tuple[float, float, float]:
+    """Read the three percentile cutoffs from Settings (defaults 0.9 /
+    0.75 / 0.5)."""
+    from app.core.config import get_settings
+    s = get_settings()
+    return (s.ada_tier_percentile_high,
+            s.ada_tier_percentile_moderate,
+            s.ada_tier_percentile_low)
+
+
+def compute_stop_ada_gap_for_all_stops(
+    conn: Connection,
+    *,
+    catchment_radius_m: Optional[int] = None,
+) -> int:
+    """Recompute per-stop ADA gap scores in one SQL pass.
+
+    CTE pipeline:
+      supply       — wheelchair_boarding + Pathways override (rail only)
+      demand       — areal-interpolated B18105 into a buffer of
+                     `catchment_radius_m` meters around each stop
+      combined     — supply × demand → gap_score
+      percentiles  — PERCENTILE_CONT over non-zero gap_scores
+      INSERT … ON CONFLICT (stop_id) DO UPDATE  with banded gap_tier.
+
+    Returns rowcount.
+    """
+    if catchment_radius_m is None:
+        catchment_radius_m = _catchment_radius()
+    p_high, p_moderate, p_low = _percentile_thresholds()
+
+    result = conn.execute(text("""
+        WITH supply AS (
+          SELECT s.stop_id,
+                 s.agency_id,
+                 s.location_type,
+                 s.wheelchair_boarding,
+                 EXISTS (
+                   SELECT 1 FROM gtfs_pathways p
+                    WHERE p.agency_id = s.agency_id
+                      AND (p.from_stop_id = s.stop_id
+                           OR p.to_stop_id = s.stop_id)
+                 ) AS has_pathways_data,
+                 EXISTS (
+                   SELECT 1 FROM gtfs_pathways p
+                    WHERE p.agency_id = s.agency_id
+                      AND (p.from_stop_id = s.stop_id
+                           OR p.to_stop_id = s.stop_id)
+                      -- "Accessible" = any non-stairs pathway (mode 2 = stairs).
+                      -- Includes walkways, moving sidewalks, escalators, elevators,
+                      -- and gate-type edges. Permissive but defensible — matches the
+                      -- spec's "Pathways override fires only when the only path is
+                      -- stairs" intent.
+                      AND p.pathway_mode <> 2
+                 ) AS has_accessible_pathway
+            FROM gtfs_stops s
+           WHERE s.geom IS NOT NULL
+        ),
+        demand AS (
+          SELECT s.stop_id,
+                 COALESCE(SUM(
+                   ca.ambulatory_pop
+                   * ST_Area(ST_Intersection(buf.geom, t.geom))
+                   / NULLIF(ST_Area(t.geom), 0)
+                 ), 0)::int AS ambulatory_pop_400m
+            FROM gtfs_stops s
+            CROSS JOIN LATERAL (
+              SELECT ST_Buffer(s.geom::geography, :r)::geometry AS geom
+            ) buf
+            LEFT JOIN census_tracts     t  ON ST_Intersects(buf.geom, t.geom)
+            LEFT JOIN census_ambulatory ca USING (tract_geoid)
+           WHERE s.geom IS NOT NULL
+           GROUP BY s.stop_id
+        ),
+        combined AS (
+          SELECT supply.stop_id, supply.agency_id,
+                 CASE
+                   WHEN supply.location_type IN (1, 2)
+                    AND supply.has_pathways_data
+                    AND NOT supply.has_accessible_pathway
+                       THEN 1.0
+                   WHEN supply.wheelchair_boarding = 1 THEN 0.0
+                   WHEN supply.wheelchair_boarding = 2 THEN 1.0
+                   ELSE 0.5
+                 END AS supply_penalty,
+                 (supply.location_type IN (1, 2)
+                    AND supply.has_pathways_data
+                    AND NOT supply.has_accessible_pathway) AS pathways_override,
+                 demand.ambulatory_pop_400m
+            FROM supply
+            JOIN demand USING (stop_id)
+        ),
+        scored AS (
+          SELECT *,
+                 (supply_penalty * ambulatory_pop_400m)::numeric(10,2)
+                   AS gap_score
+            FROM combined
+        ),
+        percentiles AS (
+          SELECT PERCENTILE_CONT(:p_high)     WITHIN GROUP (ORDER BY gap_score) AS p_high,
+                 PERCENTILE_CONT(:p_moderate) WITHIN GROUP (ORDER BY gap_score) AS p_moderate,
+                 PERCENTILE_CONT(:p_low)      WITHIN GROUP (ORDER BY gap_score) AS p_low
+            FROM scored
+           WHERE gap_score > 0
+        )
+        INSERT INTO stop_ada_gap (
+          stop_id, agency_id, supply_penalty, ambulatory_pop_400m,
+          gap_score, gap_tier, pathways_override,
+          catchment_radius_m, computed_at
+        )
+        SELECT scored.stop_id, scored.agency_id,
+               scored.supply_penalty, scored.ambulatory_pop_400m,
+               scored.gap_score,
+               CASE
+                 WHEN scored.gap_score <= 0                  THEN 'low'
+                 WHEN scored.gap_score >= COALESCE(percentiles.p_high, 0)
+                   AND COALESCE(percentiles.p_high, 0) > 0   THEN 'very_high'
+                 WHEN scored.gap_score >= COALESCE(percentiles.p_moderate, 0)
+                   AND COALESCE(percentiles.p_moderate, 0) > 0 THEN 'high'
+                 WHEN scored.gap_score >= COALESCE(percentiles.p_low, 0)
+                   AND COALESCE(percentiles.p_low, 0) > 0    THEN 'moderate'
+                 ELSE 'low'
+               END,
+               scored.pathways_override,
+               :r,
+               now()
+          FROM scored, percentiles
+        ON CONFLICT (stop_id) DO UPDATE
+          SET agency_id            = EXCLUDED.agency_id,
+              supply_penalty       = EXCLUDED.supply_penalty,
+              ambulatory_pop_400m  = EXCLUDED.ambulatory_pop_400m,
+              gap_score            = EXCLUDED.gap_score,
+              gap_tier             = EXCLUDED.gap_tier,
+              pathways_override    = EXCLUDED.pathways_override,
+              catchment_radius_m   = EXCLUDED.catchment_radius_m,
+              computed_at          = EXCLUDED.computed_at
+    """), {"r": catchment_radius_m,
+           "p_high": p_high,
+           "p_moderate": p_moderate,
+           "p_low": p_low})
+    return result.rowcount
+
+
+def refresh_cell_ada_gap(conn: Connection) -> None:
+    """Refresh the cell_ada_gap materialized view.  Not CONCURRENTLY
+    because the view has no unique index (same precedent as Sprint
+    5b's stop_cell)."""
+    conn.execute(text("REFRESH MATERIALIZED VIEW cell_ada_gap"))
