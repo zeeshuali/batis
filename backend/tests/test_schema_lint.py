@@ -90,3 +90,60 @@ def test_cell_ada_gap_view_exists(db_conn):
         "SELECT 1 FROM pg_matviews WHERE matviewname = 'cell_ada_gap'"
     )).first()
     assert row is not None, "cell_ada_gap materialized view missing — migration 008 not applied"
+
+
+# ── Migration 009: GTFS composite primary keys ────────────────────────────────
+
+@pytest.mark.parametrize("table, expected_cols", [
+    ("gtfs_routes",      ["agency_id", "route_id"]),
+    ("gtfs_trips",       ["agency_id", "trip_id"]),
+    ("gtfs_stop_times",  ["agency_id", "trip_id", "stop_sequence"]),
+    ("gtfs_shapes",      ["agency_id", "shape_id", "shape_pt_sequence"]),
+    ("gtfs_shape_geoms", ["agency_id", "shape_id"]),
+])
+def test_gtfs_pks_are_composite(db_conn, table, expected_cols):
+    """Regression guard for migration 009: every multi-agency GTFS table
+    must have agency_id as the first column of its PK. Without this,
+    cross-agency ID collisions silently overwrite one agency's data
+    (e.g. SF Muni and Santa Clara VTA both using route_id '31')."""
+    actual = db_conn.execute(text("""
+        SELECT a.attname
+          FROM pg_constraint c
+          JOIN pg_attribute a
+            ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+         WHERE c.conrelid = :rel::regclass AND c.contype = 'p'
+         ORDER BY array_position(c.conkey, a.attnum)
+    """), {"rel": table}).scalars().all()
+    assert actual == expected_cols, (
+        f"{table} PK = {actual}, expected {expected_cols} — migration 009 "
+        f"not applied (or schema.sql drifted)."
+    )
+
+
+def test_gtfs_stops_has_composite_unique_index(db_conn):
+    """gtfs_stops keeps single-column PK (stop_safety_scores / stop_features
+    FK to it), but migration 009 adds a composite UNIQUE index so the loader's
+    ON CONFLICT (agency_id, stop_id) clause has a target and future
+    cross-agency stop_id collisions error loudly."""
+    indexdef = db_conn.execute(text(
+        "SELECT indexdef FROM pg_indexes WHERE indexname = 'gtfs_stops_agency_stop_uniq'"
+    )).scalar()
+    assert indexdef is not None, (
+        "gtfs_stops_agency_stop_uniq index missing — migration 009 not applied."
+    )
+    assert "agency_id" in indexdef and "stop_id" in indexdef, (
+        f"gtfs_stops_agency_stop_uniq has unexpected definition: {indexdef}"
+    )
+
+
+def test_gtfs_shapes_has_agency_id_column(db_conn):
+    """Migration 009 adds NOT NULL agency_id to gtfs_shapes (the original
+    loader assumed shape_ids were globally unique, which is false across
+    multi-agency feeds)."""
+    row = db_conn.execute(text("""
+        SELECT is_nullable
+          FROM information_schema.columns
+         WHERE table_name = 'gtfs_shapes' AND column_name = 'agency_id'
+    """)).first()
+    assert row is not None, "gtfs_shapes.agency_id column missing — migration 009 not applied."
+    assert row[0] == "NO", f"gtfs_shapes.agency_id must be NOT NULL, got is_nullable={row[0]}"
