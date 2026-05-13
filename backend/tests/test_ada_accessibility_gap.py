@@ -274,3 +274,28 @@ def test_get_stop_ada_gap_features_tier_filter(db_conn, ada_fixture):
     features = get_stop_ada_gap_features(db_conn, tier="low", limit=5000)
     for f in features:
         assert f["properties"]["gap_tier"] == "low"
+
+
+from app.services.ada_accessibility_gap import (
+    get_cell_ada_gap_features,
+)
+
+
+def test_get_cell_ada_gap_features_returns_cells(db_conn, ada_fixture):
+    compute_stop_ada_gap_for_all_stops(db_conn)
+    db_conn.commit()
+    refresh_cell_ada_gap(db_conn)
+    db_conn.commit()
+
+    features = get_cell_ada_gap_features(db_conn, min_population=0, limit=5000)
+    test_cell = next(
+        (f for f in features
+         if f["properties"]["cell_id"] == "test-cellA"), None)
+    assert test_cell is not None
+    props = test_cell["properties"]
+    assert props["stop_count"] == 3
+    assert props["max_gap_score"] is not None
+    assert props["worst_tier"] in {"low", "moderate", "high", "very_high"}
+    assert "population" in props
+    assert "equity_score" in props
+    assert test_cell["geometry"]["type"] == "Polygon"

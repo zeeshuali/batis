@@ -222,6 +222,54 @@ def refresh_cell_ada_gap(conn: Connection) -> None:
     conn.execute(text("REFRESH MATERIALIZED VIEW cell_ada_gap"))
 
 
+def get_cell_ada_gap_features(
+    conn: Connection,
+    *,
+    min_population: int = 0,
+    limit: int = 2000,
+) -> list[dict[str, Any]]:
+    """Read cell_ada_gap joined with coverage_cells.geom + equity
+    columns, return GeoJSON-ready Feature dicts.  Sorted by
+    max_gap_score DESC.
+    """
+    rows = conn.execute(text("""
+        SELECT cag.cell_id,
+               ST_AsGeoJSON(cc.geom)::json AS geometry,
+               cag.stop_count,
+               cag.max_gap_score,
+               cag.mean_gap_score,
+               cag.worst_tier,
+               cc.population,
+               cc.equity_score
+          FROM cell_ada_gap cag
+          JOIN coverage_cells cc USING (cell_id)
+         WHERE COALESCE(cc.population, 0) >= :min_pop
+           AND cag.max_gap_score IS NOT NULL
+         ORDER BY cag.max_gap_score DESC NULLS LAST, cag.cell_id
+         LIMIT :lim
+    """), {"min_pop": min_population, "lim": limit}).mappings().all()
+
+    features: list[dict[str, Any]] = []
+    for r in rows:
+        features.append({
+            "type":     "Feature",
+            "geometry": r["geometry"],
+            "properties": {
+                "cell_id":         r["cell_id"],
+                "stop_count":      int(r["stop_count"] or 0),
+                "max_gap_score":   float(r["max_gap_score"])
+                                   if r["max_gap_score"] is not None else None,
+                "mean_gap_score":  float(r["mean_gap_score"])
+                                   if r["mean_gap_score"] is not None else None,
+                "worst_tier":      r["worst_tier"],
+                "population":      r["population"],
+                "equity_score":    float(r["equity_score"])
+                                   if r["equity_score"] is not None else None,
+            },
+        })
+    return features
+
+
 def get_stop_ada_gap_features(
     conn: Connection,
     *,
