@@ -5,16 +5,18 @@ import { Coverage }    from "./planning/Coverage";
 import { Regional }    from "./planning/Regional";
 import { Workbench }   from "./planning/Workbench";
 import { Scenarios }   from "./planning/Scenarios";
+import { Fares }       from "./planning/Fares";
 import "./sections.css";
 import "./planning/planning.css";
 
-type SubKey = "diagnostics" | "coverage" | "regional" | "workbench" | "scenarios";
+type SubKey = "diagnostics" | "coverage" | "regional" | "workbench" | "scenarios" | "fares";
 const SUBS: { key: SubKey; label: string; persona: string }[] = [
   { key: "diagnostics", label: "Diagnostics", persona: "Agency service planner" },
   { key: "coverage",    label: "Coverage",    persona: "City / municipal planner" },
   { key: "regional",    label: "Regional",    persona: "MPO / regional planner" },
   { key: "workbench",   label: "Workbench",   persona: "Click-to-inspect a corridor" },
   { key: "scenarios",   label: "Scenarios",   persona: "What-if simulation" },
+  { key: "fares",       label: "Fares",       persona: "Corridor fare burden + equity overlay" },
 ];
 
 const DEFAULT_SUB: SubKey = "diagnostics";
@@ -55,6 +57,7 @@ export const Planning: React.FC = () => {
         {active === "regional"    && <Regional />}
         {active === "workbench"   && <Workbench />}
         {active === "scenarios"   && <Scenarios />}
+        {active === "fares"       && <Fares />}
       </div>
     </div>
   );

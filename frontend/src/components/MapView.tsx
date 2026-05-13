@@ -40,7 +40,7 @@ interface LegendItem {
 
 // ─── Layer / source constants ─────────────────────────────────────────────────
 
-const SOURCES = ["reliability-stops", "safety-stops", "crowding-stops", "demand-stops", "coverage-cells", "deserts", "equity-cells", "selected-route", "rt-vehicles", "planner-origin", "planner-dest", "traffic-events", "work-zones", "affected-routes", "workbench-point", "scenario-stops"] as const;
+const SOURCES = ["reliability-stops", "safety-stops", "crowding-stops", "demand-stops", "coverage-cells", "deserts", "equity-cells", "selected-route", "rt-vehicles", "planner-origin", "planner-dest", "traffic-events", "work-zones", "affected-routes", "workbench-point", "scenario-stops", "fares-origin", "fares-dest"] as const;
 
 const SECTION_LAYERS: Record<Section, string[]> = {
   // reliability-heat is included here so toggleLayers hides it when leaving these sections.
@@ -65,6 +65,10 @@ const SECTION_LAYERS: Record<Section, string[]> = {
   // Scenarios piggybacks on the same coverage backdrop, but each click
   // appends to a list of hypothetical stops drawn from one source.
   scenarios:   ["coverage-fill", "coverage-outline", "scenario-stops-circle"],
+  // Fares mode: coverage backdrop + two distinct pins (origin = green,
+  // destination = red — same colour convention as the planner mode so
+  // muscle memory carries over).
+  fares:       ["coverage-fill", "coverage-outline", "fares-origin-circle", "fares-dest-circle"],
 };
 
 const ALL_LAYERS = Object.values(SECTION_LAYERS).flat();
@@ -227,6 +231,14 @@ const LEGENDS: Record<Section, { title: string; items: LegendItem[] }> = {
       { color: "#bae6fd", label: "Coverage cells (backdrop)", shape: "square" },
     ],
   },
+  fares: {
+    title: "Fares",
+    items: [
+      { color: "#22c55e", label: "Origin pin" },
+      { color: "#ef4444", label: "Destination pin" },
+      { color: "#bae6fd", label: "Coverage cells (backdrop)", shape: "square" },
+    ],
+  },
 };
 
 // ─── Popup HTML builders ──────────────────────────────────────────────────────
@@ -378,7 +390,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   // Read filter + selection from contexts. Local aliases below keep the
   // rest of the ~1,100-line component compiling unchanged.
   const { filters } = useFilters();
-  const { selection, setStopId, setPlannerOrigin, setPlannerDest, resetPlanner, setWorkbenchPoint, addScenarioStop } = useSelection();
+  const { selection, setStopId, setPlannerOrigin, setPlannerDest, resetPlanner, setWorkbenchPoint, addScenarioStop, setFaresPin } = useSelection();
   const { agencies } = useAgencies();
 
   const startDate = filters.startDate;
@@ -404,6 +416,9 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   const onWorkbenchMapClick = (lat: number, lng: number) => setWorkbenchPoint({ lat, lng });
   const scenarioStops = selection.scenarioStops;
   const onScenarioMapClick = (lat: number, lng: number) => addScenarioStop({ lat, lng });
+  const onFaresMapClick    = (lat: number, lng: number) => setFaresPin({ lat, lng });
+  const faresOrigin:      LatLng | null = selection.faresOrigin;
+  const faresDestination: LatLng | null = selection.faresDestination;
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef         = useRef<mapboxgl.Map | null>(null);
@@ -419,6 +434,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   const onPlannerMapClickRef   = useRef(onPlannerMapClick);
   const onWorkbenchMapClickRef = useRef(onWorkbenchMapClick);
   const onScenarioMapClickRef  = useRef(onScenarioMapClick);
+  const onFaresMapClickRef     = useRef(onFaresMapClick);
   const isFirstRenderRef       = useRef(true);
 
   // Keep refs in sync with props/state
@@ -430,6 +446,7 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
   useEffect(() => { onPlannerMapClickRef.current = onPlannerMapClick; }, [onPlannerMapClick]);
   useEffect(() => { onWorkbenchMapClickRef.current = onWorkbenchMapClick; }, [onWorkbenchMapClick]);
   useEffect(() => { onScenarioMapClickRef.current  = onScenarioMapClick;  }, [onScenarioMapClick]);
+  useEffect(() => { onFaresMapClickRef.current     = onFaresMapClick;     }, [onFaresMapClick]);
 
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState<string | null>(null);
@@ -584,9 +601,11 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
             break;
           }
           case "workbench":
-          case "scenarios": {
-            // Both modes render the coverage backdrop — fetch the hex grid
-            // and the deserts overlay the same way the coverage section does.
+          case "scenarios":
+          case "fares": {
+            // All three modes render the coverage backdrop — fetch the hex
+            // grid and the deserts overlay the same way the coverage section
+            // does.
             const [cellsR, desertsR] = await Promise.all([
               axios.get<GeoJSON.FeatureCollection>(`${API_BASE}/coverage/cells`,   { headers: h }),
               axios.get<GeoJSON.FeatureCollection>(`${API_BASE}/coverage/deserts`, { headers: h }),
@@ -931,6 +950,32 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
       },
     });
 
+    // ── Fares corridor markers ─────────────────────────────────────────────
+    // Same colour convention as planner mode (green origin, red dest) so
+    // muscle memory carries between the two click-driven surfaces.
+    map.addLayer({
+      id: "fares-origin-circle", type: "circle", source: "fares-origin",
+      layout: { visibility: "none" },
+      paint: {
+        "circle-color": "#22c55e",
+        "circle-radius": 9,
+        "circle-stroke-width": 3,
+        "circle-stroke-color": "#fff",
+        "circle-opacity": 0.95,
+      },
+    });
+    map.addLayer({
+      id: "fares-dest-circle", type: "circle", source: "fares-dest",
+      layout: { visibility: "none" },
+      paint: {
+        "circle-color": "#ef4444",
+        "circle-radius": 9,
+        "circle-stroke-width": 3,
+        "circle-stroke-color": "#fff",
+        "circle-opacity": 0.95,
+      },
+    });
+
     // ── Planner map click ──────────────────────────────────────────────────
     map.on("click", (e) => {
       if (activeSectionRef.current !== "planner") return;
@@ -947,6 +992,12 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
     map.on("click", (e) => {
       if (activeSectionRef.current !== "scenarios") return;
       onScenarioMapClickRef.current(e.lngLat.lat, e.lngLat.lng);
+    });
+
+    // ── Fares map click ────────────────────────────────────────────────────
+    map.on("click", (e) => {
+      if (activeSectionRef.current !== "fares") return;
+      onFaresMapClickRef.current(e.lngLat.lat, e.lngLat.lng);
     });
 
     // ── Hover interactions (popups only) ───────────────────────────────────
@@ -1167,12 +1218,31 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
     setSource(map, "scenario-stops", fc);
   }, [scenarioStops]);
 
+  // ── Update fares corridor pin sources ───────────────────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    const oFC: GeoJSON.FeatureCollection = faresOrigin
+      ? { type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [faresOrigin.lng, faresOrigin.lat] }, properties: {} }] }
+      : emptyFC();
+    setSource(map, "fares-origin", oFC);
+  }, [faresOrigin]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    const dFC: GeoJSON.FeatureCollection = faresDestination
+      ? { type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [faresDestination.lng, faresDestination.lat] }, properties: {} }] }
+      : emptyFC();
+    setSource(map, "fares-dest", dFC);
+  }, [faresDestination]);
+
   // ── Crosshair cursor in planner mode ─────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoadedRef.current) return;
     map.getCanvas().style.cursor =
-      (activeSection === "planner" || activeSection === "workbench" || activeSection === "scenarios") ? "crosshair" : "";
+      (activeSection === "planner" || activeSection === "workbench" || activeSection === "scenarios" || activeSection === "fares") ? "crosshair" : "";
   }, [activeSection]);
 
   // ── Filter vehicles layer by selected agencies ────────────────────────────

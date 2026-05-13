@@ -29,4 +29,5 @@ export type Section =
   | "traffic"
   | "equity"
   | "workbench"
-  | "scenarios";
+  | "scenarios"
+  | "fares";
