@@ -6,6 +6,7 @@ from typing import List, Optional, Tuple
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from app.core.config import get_settings

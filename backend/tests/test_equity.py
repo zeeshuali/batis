@@ -115,3 +115,24 @@ def test_equity_score_outside_all_county_bboxes_gets_default(db_conn: Connection
     assert score == pytest.approx(0.5, abs=1e-6), (
         f"Cells outside all county bboxes should default to 0.5, got {score}"
     )
+
+
+# ── HTTP endpoint regression tests ────────────────────────────────────────────
+# These exercise the FastAPI handler, not just the service layer, so they
+# catch the "service works but main.py is missing an import" class of bug
+# that 47 service-layer tests can't see.
+
+@pytest.mark.asyncio
+async def test_equity_score_endpoint_returns_feature_collection(client):
+    """GET /equity/score returns a GeoJSON FeatureCollection.
+
+    Regression for a NameError: the endpoint uses sqlalchemy.text() but
+    main.py never imported it, so the route 500'd at first call.
+    Service-layer tests didn't catch it because they import functions
+    directly; only an HTTP-client test reaches the broken code path.
+    """
+    resp = await client.get("/equity/score")
+    assert resp.status_code == 200, f"got {resp.status_code}: {resp.text[:200]}"
+    body = resp.json()
+    assert body.get("type") == "FeatureCollection"
+    assert isinstance(body.get("features"), list)
