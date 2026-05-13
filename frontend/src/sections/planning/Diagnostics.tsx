@@ -43,7 +43,7 @@ export const Diagnostics: React.FC = () => {
           api.get<ReliabilityRow[]>("/reliability/summary", { params: { ...params, ...single } }).catch(() => ({ data: [] })),
           api.get<BunchingRow[]>  ("/bunching/summary",     { params: { ...params, ...single } }).catch(() => ({ data: [] })),
           api.get<SafetyRow[]>    ("/safety/stops",         { params: { min_score: 8, ...single } }).catch(() => ({ data: [] })),
-          api.get<CrowdingRow[]>  ("/crowding/predictions", { params: dateParams }).catch(() => ({ data: [] })),
+          api.get<CrowdingRow[]>  ("/crowding/predictions", { params }).catch(() => ({ data: [] })),
         ]);
         if (cancelled) return;
         setReliability(rel.data ?? []);
