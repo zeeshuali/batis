@@ -57,6 +57,13 @@ export const Network: React.FC = () => {
     .filter(r => !filters.search || (r.route_short_name ?? r.route_id).toLowerCase().includes(filters.search.toLowerCase()))
     .slice(0, 100)
     .map(r => ({
+      // id is the raw route_id because downstream consumers (selection
+      // context, /routes/{id}/geo) treat the selected id as a literal
+      // route_id. When two agencies share a route_id label React will
+      // warn about duplicate keys; the warning is benign because in
+      // practice the agency filter is typically engaged. A real fix
+      // requires the API + frontend to thread agency_id through every
+      // route-selection flow — deferred follow-up.
       id: r.route_id,
       primary:   r.route_short_name ?? r.route_id,
       secondary: r.agency_id ? agencyName(r.agency_id, agenciesById) : undefined,

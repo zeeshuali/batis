@@ -66,9 +66,13 @@ export const Overview: React.FC = () => {
     .sort((a, b) => b.avg_delay_seconds - a.avg_delay_seconds)
     .slice(0, 10)
     .map(r => ({
+      // id stays as raw route_id (downstream selection treats it as a
+      // literal route_id for API calls). Surface agency_id in the
+      // secondary label so users see which agency a route belongs to
+      // when more than one agency uses the same route_id label.
       id:       r.route_id,
       primary:  r.route_id,
-      secondary: `${r.sample_events} events`,
+      secondary: `${r.sample_events} events${r.agency_id ? ` · ${r.agency_id}` : ""}`,
       trailing: fmtMin(r.avg_delay_seconds),
     }));
 

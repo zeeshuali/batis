@@ -31,6 +31,7 @@ def get_reliability_summary(
     sql = text(
         f"""
         SELECT
+          agency_id,
           route_id,
           COUNT(*) AS sample_events,
           AVG(CASE WHEN delay_seconds IS NULL THEN 0 ELSE delay_seconds END) AS avg_delay_seconds,
@@ -42,8 +43,8 @@ def get_reliability_summary(
         WHERE service_date BETWEEN :start_date AND :end_date
         {route_filter}
         {agency_filter}
-        GROUP BY route_id
-        ORDER BY route_id
+        GROUP BY agency_id, route_id
+        ORDER BY agency_id, route_id
         """
     )
     rows = conn.execute(sql, params).mappings().all()

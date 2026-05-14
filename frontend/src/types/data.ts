@@ -6,6 +6,10 @@
 
 export interface ReliabilityRow {
   route_id: string;
+  /** Added in Phase 3 — /reliability/summary now GROUPs by
+   *  (agency_id, route_id) so each row carries its agency. Optional
+   *  to keep legacy clients/mock data happy. */
+  agency_id?: string;
   sample_events: number;
   avg_delay_seconds: number;
   on_time_pct?: number;

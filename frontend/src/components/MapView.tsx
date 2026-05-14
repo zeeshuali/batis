@@ -649,20 +649,26 @@ export const MapView: React.FC<MapViewProps> = ({ mapMode, darkMode = true, agen
             applyGeoJSON("traffic-events", evFC);
             applyGeoJSON("work-zones",     wzFC);
 
-            // Build affected-routes FeatureCollection from unique route_ids
+            // Build affected-routes FeatureCollection from unique
+            // (agency_id, route_id) pairs. Pre-Phase-3 this keyed by
+            // route_id alone, so SF route 31 and SC route 31 collapsed
+            // into one entry on the map. Composite key keeps them
+            // separate.
             const impactRows = impactRes.data as {
-              route_id: string; alert_level: string;
+              route_id: string; agency_id?: string; alert_level: string;
             }[];
-            const seen = new Map<string, string>(); // route_id → alert_level
+            const seen = new Map<string, { rid: string; level: string }>();
             for (const row of impactRows) {
+              const key = `${row.agency_id ?? ""}:${row.route_id}`;
+              const prev = seen.get(key);
               // CRITICAL takes priority over WARNING/WATCH
-              const prev = seen.get(row.route_id);
-              if (!prev || row.alert_level === "CRITICAL" || (row.alert_level === "WARNING" && prev === "WATCH")) {
-                seen.set(row.route_id, row.alert_level);
+              if (!prev || row.alert_level === "CRITICAL" ||
+                  (row.alert_level === "WARNING" && prev.level === "WATCH")) {
+                seen.set(key, { rid: row.route_id, level: row.alert_level });
               }
             }
             const shapeResults = await Promise.allSettled(
-              [...seen.entries()].map(([rid, level]) =>
+              [...seen.values()].map(({ rid, level }) =>
                 axios
                   .get<GeoJSON.FeatureCollection>(`${API_BASE}/routes/${rid}/geo`, { headers: h })
                   .then(r => ({ fc: r.data, level }))
