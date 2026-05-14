@@ -349,6 +349,59 @@ def test_get_stop_ada_gap_breakdown_returns_stop_meta(db_conn, ada_fixture):
     for r in breakdown["routes"]:
         assert r.get("agency_id") == "TESTADA"
 
+    # Phase 3 Task 6 regression guard: when gtfs_routes has the row for
+    # (tr.agency_id, tr.route_id), the breakdown surfaces the real
+    # route_short_name (not the route_id fallback). 'T1' is seeded in
+    # ada_fixture as the short_name for test-route-1.
+    assert breakdown["routes"][0]["route_short_name"] == "T1"
+
+
+def test_get_stop_ada_gap_breakdown_falls_back_when_routes_row_missing(
+    db_conn, ada_fixture
+):
+    """When gtfs_routes is missing a row for (tr.agency_id, tr.route_id) —
+    the exact state that caused 4/5 top-tier ADA-gap stops to show '0 routes'
+    pre-009 — the breakdown's LEFT JOIN + COALESCE must surface the trip's
+    route_id rather than silently dropping the route. To realistically
+    simulate the historical clobbered state we drop the NOT VALID FK,
+    delete the route row, run the assertion, then restore the FK
+    (also NOT VALID — there will be an orphan trip after the test, but
+    the finally clause in ada_fixture cleans it up)."""
+    compute_stop_ada_gap_for_all_stops(db_conn)
+    db_conn.commit()
+
+    # Drop FK, clobber gtfs_routes, restore FK (also NOT VALID since the
+    # orphan trip would otherwise fail validation).
+    db_conn.execute(text(
+      "ALTER TABLE gtfs_trips DROP CONSTRAINT gtfs_trips_route_id_fkey"
+    ))
+    db_conn.execute(text(
+      "DELETE FROM gtfs_routes WHERE route_id = 'test-route-1'"
+    ))
+    db_conn.execute(text("""
+      ALTER TABLE gtfs_trips
+        ADD CONSTRAINT gtfs_trips_route_id_fkey
+        FOREIGN KEY (agency_id, route_id)
+        REFERENCES gtfs_routes (agency_id, route_id) NOT VALID
+    """))
+    db_conn.commit()
+
+    try:
+        breakdown = get_stop_ada_gap_breakdown(db_conn, "test-stop-A")
+        assert len(breakdown["routes"]) >= 1, (
+            "Breakdown must still return the trip's route even when "
+            "gtfs_routes has been clobbered. Pre-009 + pre-Phase-3 this "
+            "returned 0 routes for 4/5 top-tier SFMTA Tenderloin stops."
+        )
+        # COALESCE fallback: with no row in gtfs_routes, route_short_name is
+        # NULL, so we surface the route_id so the drawer renders SOMETHING.
+        assert breakdown["routes"][0]["route_short_name"] == "test-route-1"
+    finally:
+        # ada_fixture's finally block handles trip + stop_times cleanup;
+        # we don't need to re-seed the route here because the route was
+        # only seeded by ada_fixture and that cleanup runs after this test.
+        pass
+
 
 def test_get_stop_ada_gap_breakdown_tracts_within_buffer(db_conn, ada_fixture):
     compute_stop_ada_gap_for_all_stops(db_conn)

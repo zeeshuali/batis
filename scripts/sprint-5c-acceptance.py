@@ -275,13 +275,16 @@ elif not _gaps_features:
           "Skipped — no features from #6 to sample from")
 else:
     try:
-        # Try up to 5 stops; pass once any stop returns >= 1 route + >= 1 tract.
-        # The top-ranked stop may have an agency_id mismatch if multi-agency
-        # stop data was loaded — sampling avoids a spurious failure.
+        # Phase 3 Task 6 tightening: require ALL top-5 stops to return >= 1
+        # route + >= 1 tract. Previously this loop scanned for the first hit
+        # — that quietly hid the bug where 4 of 5 top-tier SFMTA stops
+        # returned 0 routes because of the cross-agency route_id collision
+        # in gtfs_routes. The Phase 3 query fix + COALESCE fallback now
+        # ensure every top stop has routes; this check guards that promise.
         sample_stops = _gaps_features[:5]
-        route_hit: str | None = None
-        tract_hit: str | None = None
         all_details: list[str] = []
+        zero_route_stops: list[str] = []
+        zero_tract_stops: list[str] = []
         for feat in sample_stops:
             sid = feat["properties"]["stop_id"]
             try:
@@ -289,19 +292,21 @@ else:
                 n_routes = len(body.get("routes") or [])
                 n_tracts = len(body.get("tracts") or [])
                 all_details.append(f"stop {sid}: {n_routes} routes, {n_tracts} tracts")
-                if route_hit is None and n_routes >= 1:
-                    route_hit = sid
-                if tract_hit is None and n_tracts >= 1:
-                    tract_hit = sid
+                if n_routes < 1:
+                    zero_route_stops.append(sid)
+                if n_tracts < 1:
+                    zero_tract_stops.append(sid)
             except Exception as exc:
                 all_details.append(f"stop {sid}: {type(exc).__name__}")
+                zero_route_stops.append(sid)
+                zero_tract_stops.append(sid)
         detail_str = "  |  ".join(all_details)
-        check("breakdown returns >= 1 route (across sampled stops)",
-              route_hit is not None,
-              f"first hit: stop {route_hit}  |  {detail_str}")
-        check("breakdown returns >= 1 tract (across sampled stops)",
-              tract_hit is not None,
-              f"first hit: stop {tract_hit}  |  {detail_str}")
+        check("ALL top-5 stops return >= 1 route in breakdown",
+              len(zero_route_stops) == 0,
+              f"zero-route stops: {zero_route_stops or '∅'}  |  {detail_str}")
+        check("ALL top-5 stops return >= 1 tract in breakdown",
+              len(zero_tract_stops) == 0,
+              f"zero-tract stops: {zero_tract_stops or '∅'}  |  {detail_str}")
     except Exception as exc:
         check("stop drill-down", False, f"{type(exc).__name__}: {exc}")
 

@@ -288,16 +288,25 @@ def get_stop_ada_gap_breakdown(
     if not meta_row:
         return {"stop_id": stop_id, "routes": [], "tracts": []}
 
+    # Source the route identifier from gtfs_trips (where agency_id is
+    # trustworthy — set by the loader from the feed being processed) and
+    # LEFT JOIN gtfs_routes on the composite (agency_id, route_id). This
+    # survives the pre-009 corruption gracefully: if a route row exists
+    # for the right agency, we get its short_name; if it was clobbered by
+    # another agency's load, we fall back to route_id rather than
+    # eliminating the entire row from the result.
     routes = conn.execute(text("""
-        SELECT r.route_id,
-               r.route_short_name,
+        SELECT tr.route_id,
+               COALESCE(r.route_short_name, tr.route_id) AS route_short_name,
                COUNT(DISTINCT tr.trip_id)::int AS trips_per_day
           FROM gtfs_stop_times st
-          JOIN gtfs_trips      tr ON tr.trip_id  = st.trip_id
-          JOIN gtfs_routes     r  ON r.route_id  = tr.route_id
-                                AND r.agency_id = :aid
-         WHERE st.stop_id = :sid
-         GROUP BY r.route_id, r.route_short_name
+          JOIN gtfs_trips      tr ON tr.agency_id = st.agency_id
+                                 AND tr.trip_id   = st.trip_id
+          LEFT JOIN gtfs_routes r  ON r.agency_id = tr.agency_id
+                                 AND r.route_id   = tr.route_id
+         WHERE st.stop_id   = :sid
+           AND st.agency_id = :aid
+         GROUP BY tr.route_id, r.route_short_name
          ORDER BY trips_per_day DESC
          LIMIT 10
     """), {"sid": stop_id, "aid": meta_row["agency_id"]}).mappings().all()
@@ -370,14 +379,21 @@ def get_stop_ada_gap_features(
                sag.gap_tier,
                sag.pathways_override,
                ST_AsGeoJSON(s.geom)::json AS geometry,
+               -- Trust gtfs_trips.agency_id (set by the loader); LEFT JOIN
+               -- to gtfs_routes on composite (agency_id, route_id) and
+               -- fall back to route_id when the routes row was clobbered
+               -- pre-009. See get_stop_ada_gap_breakdown for the same pattern.
                COALESCE(
-                 (SELECT array_agg(DISTINCT r.route_short_name
-                                   ORDER BY r.route_short_name)
+                 (SELECT array_agg(DISTINCT
+                          COALESCE(r.route_short_name, tr.route_id)
+                          ORDER BY COALESCE(r.route_short_name, tr.route_id))
                     FROM gtfs_stop_times st
-                    JOIN gtfs_trips      tr ON tr.trip_id  = st.trip_id
-                    JOIN gtfs_routes     r  ON r.route_id  = tr.route_id
-                                          AND r.agency_id = sag.agency_id
-                   WHERE st.stop_id = sag.stop_id), ARRAY[]::text[]
+                    JOIN gtfs_trips      tr ON tr.agency_id = st.agency_id
+                                           AND tr.trip_id   = st.trip_id
+                    LEFT JOIN gtfs_routes r  ON r.agency_id = tr.agency_id
+                                           AND r.route_id   = tr.route_id
+                   WHERE st.stop_id   = sag.stop_id
+                     AND st.agency_id = sag.agency_id), ARRAY[]::text[]
                ) AS routes_serving
           FROM stop_ada_gap sag
           JOIN gtfs_stops    s ON s.stop_id = sag.stop_id
