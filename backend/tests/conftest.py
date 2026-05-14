@@ -223,6 +223,8 @@ def _truncate(conn: Connection) -> None:
         "gtfs_trips",
         "gtfs_stops",
         "gtfs_routes",
+        "gtfs_shape_geoms",
+        "gtfs_shapes",
         "census_tracts",
         "gtfs_pathways",
         "gtfs_levels",
