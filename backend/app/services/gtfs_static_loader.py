@@ -135,8 +135,8 @@ def _prepare_dataframes(
     stops_df["agency_id"] = agency_id
     trips_df["agency_id"] = agency_id
     stop_times_df["agency_id"] = agency_id
-    # gtfs_shapes has no agency_id column — shapes are keyed by shape_id which is
-    # globally unique within a feed; shape_geoms gets agency_id set at aggregation time
+    if not shapes_df.empty:
+        shapes_df["agency_id"] = agency_id
 
     return routes_df, stops_df, trips_df, stop_times_df, shapes_df
 
@@ -226,8 +226,8 @@ def load_agency_gtfs(agency_id: str) -> None:
     ]
     shapes_cols = [
         c for c in shapes_df.columns
-        if c in {"shape_id", "shape_pt_lat", "shape_pt_lon", "shape_pt_sequence",
-                 "shape_dist_traveled"}
+        if c in {"shape_id", "agency_id", "shape_pt_lat", "shape_pt_lon",
+                 "shape_pt_sequence", "shape_dist_traveled"}
     ] if not shapes_df.empty else []
 
     engine = get_engine()
@@ -253,10 +253,14 @@ def load_agency_gtfs(agency_id: str) -> None:
             },
         )
 
-        _upsert_dataframe(conn, routes_df[routes_cols], "gtfs_routes", ["route_id"])
+        _upsert_dataframe(conn, routes_df[routes_cols], "gtfs_routes",
+                          ["agency_id", "route_id"])
 
-        # Stops: upsert core columns, then set geometry in a single SQL statement
-        _upsert_dataframe(conn, stops_df[stops_core_cols], "gtfs_stops", ["stop_id"])
+        # Stops: upsert core columns, then set geometry in a single SQL statement.
+        # gtfs_stops keeps a single-column PK; ON CONFLICT targets the composite
+        # unique index gtfs_stops_agency_stop_uniq added by migration 009.
+        _upsert_dataframe(conn, stops_df[stops_core_cols], "gtfs_stops",
+                          ["agency_id", "stop_id"])
         conn.execute(
             text(
                 "UPDATE gtfs_stops "
@@ -266,23 +270,28 @@ def load_agency_gtfs(agency_id: str) -> None:
             {"agency_id": agency_id},
         )
 
-        _upsert_dataframe(conn, trips_subset, "gtfs_trips", ["trip_id"])
+        _upsert_dataframe(conn, trips_subset, "gtfs_trips",
+                          ["agency_id", "trip_id"])
 
         _upsert_dataframe(
             conn,
             stop_times_df[stop_times_cols],
             "gtfs_stop_times",
-            ["trip_id", "stop_sequence"],
+            ["agency_id", "trip_id", "stop_sequence"],
         )
 
         if not shapes_df.empty and shapes_cols:
             _upsert_dataframe(
-                conn, shapes_df[shapes_cols], "gtfs_shapes", ["shape_id", "shape_pt_sequence"]
+                conn, shapes_df[shapes_cols], "gtfs_shapes",
+                ["agency_id", "shape_id", "shape_pt_sequence"],
             )
             loaded_shape_ids = shapes_df["shape_id"].unique().tolist()
+            # Scope the delete by agency so one agency's reload doesn't wipe
+            # another agency's shape_geoms rows that share a shape_id.
             conn.execute(
-                text("DELETE FROM gtfs_shape_geoms WHERE shape_id = ANY(:ids)"),
-                {"ids": loaded_shape_ids},
+                text("DELETE FROM gtfs_shape_geoms "
+                     "WHERE agency_id = :aid AND shape_id = ANY(:ids)"),
+                {"aid": agency_id, "ids": loaded_shape_ids},
             )
             conn.execute(
                 text(
