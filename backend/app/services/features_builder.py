@@ -145,9 +145,11 @@ def rebuild_stop_features(
                   :features_version AS features_version
                 FROM gtfs_stops s
                 LEFT JOIN gtfs_stop_times st
-                  ON st.stop_id = s.stop_id
+                  ON st.stop_id   = s.stop_id
+                 AND st.agency_id = s.agency_id
                 LEFT JOIN gtfs_trips t
-                  ON t.trip_id = st.trip_id
+                  ON t.agency_id = st.agency_id
+                 AND t.trip_id   = st.trip_id
                 GROUP BY s.stop_id, s.geom;
                 """
             ),

@@ -51,7 +51,8 @@ def compute_headways(
                     LAG(e.actual_arrival)    OVER w AS prev_actual,
                     LAG(e.scheduled_arrival) OVER w AS prev_scheduled
                   FROM ops_trip_events e
-                  LEFT JOIN gtfs_trips t ON t.trip_id = e.trip_id
+                  LEFT JOIN gtfs_trips t ON t.agency_id = e.agency_id
+                                        AND t.trip_id   = e.trip_id
                   WHERE e.service_date   = :service_date
                     AND e.stop_id        IS NOT NULL
                     AND e.actual_arrival IS NOT NULL

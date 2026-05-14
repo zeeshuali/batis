@@ -62,18 +62,20 @@ def seed_ops_from_static(
                 """
                 SELECT
                     t.trip_id,
+                    t.agency_id,
                     t.route_id,
                     st.stop_id,
                     st.stop_sequence,
                     st.arrival_time
                 FROM gtfs_trips t
-                JOIN gtfs_stop_times st ON st.trip_id = t.trip_id
-                WHERE t.trip_id IN (
-                    SELECT trip_id FROM gtfs_trips
-                    ORDER BY trip_id
+                JOIN gtfs_stop_times st ON st.agency_id = t.agency_id
+                                       AND st.trip_id   = t.trip_id
+                WHERE (t.agency_id, t.trip_id) IN (
+                    SELECT agency_id, trip_id FROM gtfs_trips
+                    ORDER BY agency_id, trip_id
                     LIMIT :max_trips
                 )
-                ORDER BY t.trip_id, st.stop_sequence
+                ORDER BY t.agency_id, t.trip_id, st.stop_sequence
                 """
             ),
             {"max_trips": max_trips},
@@ -94,6 +96,7 @@ def seed_ops_from_static(
             actual = scheduled + timedelta(seconds=delay)
             ops_rows.append({
                 "service_date": service_date,
+                "agency_id": r["agency_id"],
                 "trip_id": r["trip_id"],
                 "route_id": r["route_id"],
                 "stop_id": r["stop_id"],
@@ -113,11 +116,11 @@ def seed_ops_from_static(
             text(
                 """
                 INSERT INTO ops_trip_events (
-                  service_date, trip_id, route_id, stop_id, stop_sequence,
+                  service_date, agency_id, trip_id, route_id, stop_id, stop_sequence,
                   scheduled_arrival, actual_arrival, delay_seconds,
                   headway_seconds, occupancy_level
                 ) VALUES (
-                  :service_date, :trip_id, :route_id, :stop_id, :stop_sequence,
+                  :service_date, :agency_id, :trip_id, :route_id, :stop_id, :stop_sequence,
                   :scheduled_arrival, :actual_arrival, :delay_seconds,
                   :headway_seconds, :occupancy_level
                 )

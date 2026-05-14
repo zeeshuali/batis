@@ -105,7 +105,11 @@ def build_coverage_cells(conn: Optional[Connection] = None) -> None:
                   GROUP BY g.cell_id
                 ),
 
-                -- Per-stop trip frequency (distinct trips / service hours as proxy for trips/hr)
+                -- Per-stop trip frequency (distinct trips / service hours as proxy for trips/hr).
+                -- COUNT(DISTINCT trip_id) keys by trip_id alone, which is safe today
+                -- because gtfs_stops keeps a single-column stop_id PK (no cross-agency
+                -- stop_id collisions in current data). If that decision is revisited
+                -- and stops become multi-agency-keyed, count over (agency_id, trip_id).
                 stop_freq AS (
                   SELECT
                     st.stop_id,
