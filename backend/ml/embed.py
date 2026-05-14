@@ -70,10 +70,14 @@ def _upsert_embeddings(
 # ── Content builders ──────────────────────────────────────────────────────────
 
 def _build_route_texts(conn) -> List[Tuple[str, str]]:
-    """(route_id, descriptive text) for every route with recent data."""
+    """('{agency_id}:{route_id}', descriptive text) for every route with
+    recent data. cid is composite so multi-agency route_id collisions
+    (SF + SC both use '31') don't clobber each other in ai_embeddings."""
     rows = conn.execute(text("""
         SELECT
             r.route_id,
+            r.agency_id,
+            COALESCE(a.agency_name, r.agency_id)                             AS agency_name,
             r.route_short_name,
             r.route_long_name,
             COUNT(DISTINCT e.trip_id)                                        AS trips_today,
@@ -85,15 +89,20 @@ def _build_route_texts(conn) -> List[Tuple[str, str]]:
             ROUND(MAX(e.delay_seconds))                                      AS max_delay,
             (SELECT COUNT(DISTINCT st.stop_id)
                FROM gtfs_stop_times st
-               JOIN gtfs_trips t2 ON t2.trip_id = st.trip_id
-              WHERE t2.route_id = r.route_id)                                AS stop_count
+               JOIN gtfs_trips t2 ON t2.agency_id = st.agency_id
+                                 AND t2.trip_id   = st.trip_id
+              WHERE t2.route_id  = r.route_id
+                AND t2.agency_id = r.agency_id)                              AS stop_count
         FROM gtfs_routes r
+        LEFT JOIN agencies a ON a.agency_id = r.agency_id
         LEFT JOIN ops_trip_events e
-            ON e.route_id = r.route_id
+            ON e.route_id  = r.route_id
+           AND e.agency_id = r.agency_id
            AND e.service_date >= CURRENT_DATE - INTERVAL '7 days'
            AND e.delay_seconds IS NOT NULL
-        GROUP BY r.route_id, r.route_short_name, r.route_long_name
-        ORDER BY r.route_short_name
+        GROUP BY r.route_id, r.agency_id, a.agency_name,
+                 r.route_short_name, r.route_long_name
+        ORDER BY r.agency_id, r.route_short_name
     """)).mappings().all()
 
     results = []
@@ -106,7 +115,10 @@ def _build_route_texts(conn) -> List[Tuple[str, str]]:
         stops = r["stop_count"] or 0
         trips = r["trips_today"] or 0
 
-        text_parts = [f"Route {name}"]
+        # Leading agency name makes RAG retrieval disambiguate naturally
+        # — a question about "AC Transit route 31" matches the AC chunk
+        # more strongly than the Santa Clara chunk on cosine similarity.
+        text_parts = [f"{r['agency_name']} route {name}"]
         if long_name:
             text_parts.append(f"({long_name})")
         text_parts.append(f"serves {stops} stops.")
@@ -119,12 +131,15 @@ def _build_route_texts(conn) -> List[Tuple[str, str]]:
         else:
             text_parts.append("No recent delay data available.")
 
-        results.append((r["route_id"], " ".join(text_parts)))
+        cid = f"{r['agency_id']}:{r['route_id']}"
+        results.append((cid, " ".join(text_parts)))
     return results
 
 
 def _build_stop_texts(conn) -> List[Tuple[str, str]]:
-    """(stop_id, descriptive text) for stops with route and delay context."""
+    """(stop_id, descriptive text) for stops with route and delay context.
+    stop_id remains the cid because gtfs_stops keeps a single-column PK;
+    every JOIN now matches on agency_id to avoid cross-agency JOIN bleed."""
     rows = conn.execute(text("""
         SELECT
             s.stop_id,
@@ -135,11 +150,15 @@ def _build_stop_texts(conn) -> List[Tuple[str, str]]:
                        ORDER BY r.route_short_name)  AS routes,
             ROUND(AVG(e.delay_seconds))              AS avg_delay
         FROM gtfs_stops s
-        JOIN gtfs_stop_times st ON st.stop_id = s.stop_id
-        JOIN gtfs_trips      t  ON t.trip_id  = st.trip_id
-        JOIN gtfs_routes     r  ON r.route_id = t.route_id
+        JOIN gtfs_stop_times st ON st.stop_id   = s.stop_id
+                               AND st.agency_id = s.agency_id
+        JOIN gtfs_trips      t  ON t.agency_id = st.agency_id
+                               AND t.trip_id   = st.trip_id
+        JOIN gtfs_routes     r  ON r.agency_id = t.agency_id
+                               AND r.route_id  = t.route_id
         LEFT JOIN ops_trip_events e
             ON e.stop_id    = s.stop_id
+           AND e.agency_id  = s.agency_id
            AND e.service_date >= CURRENT_DATE - INTERVAL '7 days'
         GROUP BY s.stop_id, s.stop_name, s.stop_code
         HAVING COUNT(DISTINCT t.route_id) >= 1
@@ -166,9 +185,12 @@ def _build_stop_texts(conn) -> List[Tuple[str, str]]:
 
 
 def _build_ops_summary_texts(conn) -> List[Tuple[str, str]]:
-    """Daily ops summaries per route for the last 7 days."""
+    """Daily ops summaries per (agency, route) for the last 7 days.
+    cid form: '{agency_id}:{route_id}:{day}' so multi-agency route_id
+    collisions don't clobber each other."""
     rows = conn.execute(text("""
         SELECT
+            agency_id,
             route_id,
             service_date::text                           AS day,
             ROUND(AVG(delay_seconds))                    AS avg_delay,
@@ -181,16 +203,16 @@ def _build_ops_summary_texts(conn) -> List[Tuple[str, str]]:
         FROM ops_trip_events
         WHERE delay_seconds IS NOT NULL
           AND service_date >= CURRENT_DATE - INTERVAL '7 days'
-        GROUP BY route_id, service_date
+        GROUP BY agency_id, route_id, service_date
         HAVING COUNT(*) >= 5
-        ORDER BY service_date DESC, route_id
+        ORDER BY service_date DESC, agency_id, route_id
     """)).mappings().all()
 
     results = []
     for r in rows:
-        cid = f"{r['route_id']}_{r['day']}"
+        cid = f"{r['agency_id']}:{r['route_id']}:{r['day']}"
         text_val = (
-            f"Route {r['route_id']} on {r['day']}: "
+            f"{r['agency_id']} route {r['route_id']} on {r['day']}: "
             f"average delay {int(r['avg_delay'] or 0)}s, "
             f"max delay {int(r['max_delay'] or 0)}s, "
             f"{float(r['on_time_pct'] or 0):.1f}% on-time, "

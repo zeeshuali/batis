@@ -63,10 +63,13 @@ def _build_prompt(question: str, context_chunks: List[Dict[str, Any]]) -> str:
     context_block = "\n".join(ctx_lines)
 
     return (
-        "You are an expert transit analyst for AC Transit in the San Francisco Bay Area. "
-        "Answer questions about routes, stops, delays, and service reliability using only "
-        "the provided context. Be concise and specific. If the context does not contain "
-        "enough information to answer, say so clearly.\n\n"
+        "You are an expert transit analyst for the San Francisco Bay Area, "
+        "covering all 511.org agencies (AC Transit, Muni, BART, Caltrain, VTA, "
+        "Golden Gate, SamTrans, WETA, etc.). Each context chunk is tagged with "
+        "the originating agency. Answer questions using only the provided "
+        "context and call out which agency a finding refers to when relevant. "
+        "Be concise and specific. If the context does not contain enough "
+        "information to answer, say so clearly.\n\n"
         f"CONTEXT:\n{context_block}\n\n"
         f"QUESTION: {question}\n\n"
         "ANSWER:"
@@ -130,17 +133,26 @@ def ask(conn, question: str, top_k: int = TOP_K) -> Dict[str, Any]:
 
 
 def explain_route(conn, route_id: str) -> Dict[str, Any]:
-    """Generate a natural language summary for a specific route."""
+    """Generate a natural language summary for a specific route.
+
+    After Phase 3 the embedding pipeline writes route content_ids as
+    '{agency_id}:{route_id}' to disambiguate cross-agency collisions
+    (SF + SC both use '31'). Match both the new composite form and the
+    legacy plain route_id so the endpoint continues to work pre/post
+    embed re-run; if multiple agencies match, returns the first.
+    """
     question = (
-        f"Give a concise performance summary for AC Transit route {route_id}. "
+        f"Give a concise performance summary for transit route {route_id}. "
         "Include average delay, on-time percentage, and any notable issues."
     )
-    # Narrow the context to this route first
+    # Narrow the context to this route first. Composite-id rows look
+    # like '{agency}:{route_id}'; legacy rows are just route_id.
     rows = conn.execute(
         text("""
         SELECT content_text
         FROM ai_embeddings
-        WHERE content_type = 'route' AND content_id = :rid
+        WHERE content_type = 'route'
+          AND (content_id = :rid OR content_id LIKE '%:' || :rid)
         LIMIT 1
         """),
         {"rid": route_id},
