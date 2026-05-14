@@ -189,18 +189,74 @@ The migration is idempotent (`IF NOT EXISTS` throughout) and safe to re-run.
 
 ## What Is NOT Yet Implemented
 
-- 511.org integration (any endpoint, any agency)
-- Multi-agency support (BART, Muni, Caltrain, VTA, etc.)
 - Real-time Stop Monitoring (live ETAs via SIRI)
-- Cross-agency on-time benchmarking
-- Transfer reliability scoring
 - Stop Observations archive ingestion
 - Toll-transit correlation
-- Work Zone / traffic event impact on transit
-- Fare calculator (GTFS Fares v2)
-- Accessibility gap analysis
-- Any automated tests (zero backend tests, zero frontend tests)
 - Rate limiting
 - CORS from env var
 - Pagination on coverage cells endpoint
 - Real APC (automatic passenger counting) data
+
+---
+
+## Multi-Agency Foundation Fix — Completed 2026-05-13
+
+The GTFS multi-agency data layer is now data-integrity-correct end-to-end.
+Migration 009 (composite primary keys) + Phase 2 loader updates + Phase 3
+read-path repair + Phase 4 ETL re-run landed across 14 commits. See
+`docs/superpowers/plans/2026-05-13-gtfs-composite-keys.md` for the full plan.
+
+**Data state** (post-Phase-4):
+
+- 24 agencies loaded with full GTFS (routes, trips, stop_times, shapes,
+  stop geometry): AC, BA, CC, CT, MA, PE, PG, SA, SB, SC, SF, SM, SO,
+  SR, ST, UC, VC, VN, WC, WH, AM, CE, FS, 3D
+- 595 routes, 90k trips, 3.3M stop_times, 1.6M shape points
+- **0 cross-agency route_id mismatches** (was 57,919 pre-fix)
+- Both NOT VALID FKs now fully VALIDATED — referential integrity locked in
+
+**Known follow-up: stop_id collisions block 2 agencies (GG, MV).**
+Both share stop_ids with already-loaded agencies (e.g. stop 40427 was
+loaded by MA before GG attempted). The single-column PK on gtfs_stops
+correctly refuses the second insert. To onboard GG + MV, gtfs_stops PK
+must become composite `(agency_id, stop_id)`, which forces
+`stop_safety_scores` and `stop_features` to be agency-aware too (their
+FKs reference gtfs_stops.stop_id alone). This is documented as a
+follow-up sprint in the foundation-fix plan's "Decision points".
+
+**Test counts at sprint close:**
+
+- Backend: 198 passing (was 151 at Sprint 5b close, 163 at Sprint 5c close)
+- Frontend: 112 passing (was 105 at Sprint 5b close, 113 at Sprint 5c close)
+- The 2 failing `test_service_delivery_gap` tests are pre-existing
+  DATABASE_URL config drift, not caused by this work (confirmed by
+  running them on commit 41479c5).
+
+**Sprint 5c UX defect closed.** Pre-fix the 4 highest-gap Tenderloin
+stops (14483, 18049, 14867, 14480) rendered "Routes: 0" in the ADA-gap
+drawer. Post-fix all 5 top stops show their real SFMTA routes (31, 27,
+38) with full short names ("31 BALBOA") and trip counts.
+
+---
+
+## Stale items (resolved earlier sprints)
+
+The following bullets in earlier sections of this file are now obsolete
+and should be removed in the next docs sweep:
+
+- "511.org integration (any endpoint, any agency)" — IMPLEMENTED, all
+  monitored agencies loaded via `/transit/datafeeds?operator_id=...`
+- "Multi-agency support (BART, Muni, Caltrain, VTA, etc.)" — IMPLEMENTED
+  end-to-end including correct cross-agency JOIN behaviour
+- "Cross-agency on-time benchmarking" — `/reliability/summary` returns
+  per-(agency, route) rows
+- "Transfer reliability scoring" — `compute_transfer_reliability` runs
+  in run_data_jobs Step 8
+- "Work Zone / traffic event impact on transit" — `/traffic/transit-impact`
+  is live and the MapView consumes it
+- "Fare calculator (GTFS Fares v2)" — Sprint 4 added the loader and
+  `/fares/*` endpoints
+- "Accessibility gap analysis" — Sprint 5c shipped, and Phase 3 closed
+  the visible defect on top-tier stops
+- "Any automated tests (zero backend tests, zero frontend tests)" — 198
+  backend + 112 frontend

@@ -190,6 +190,14 @@ VITE_API_KEY=...                   # X-API-Key for frontend requests
 - Frontend fetches use `axios` with `apiHeaders()` helper for the API key
 - All background tasks run as daemon threads (not asyncio tasks)
 - The `config.py` Settings class uses `pydantic-settings` — add new env vars there, not via `os.getenv()`
+- **Multi-agency JOINs:** every JOIN between `gtfs_routes`, `gtfs_trips`,
+  `gtfs_stop_times`, `gtfs_shapes`, `gtfs_shape_geoms` must include
+  `agency_id` in the ON clause. PKs are composite `(agency_id, <id>)` as
+  of migration 009; joining on `<id>` alone compiles but silently
+  cross-bleeds between agencies whenever a route_id/trip_id/shape_id
+  label is shared (e.g. SF Muni and Santa Clara VTA both use route_id
+  "31"). `gtfs_stops` keeps a single-column `stop_id` PK + composite
+  unique index — `stop_safety_scores` and `stop_features` FK to it.
 
 ---
 
