@@ -554,14 +554,19 @@ def get_stop_detail(conn: Connection, stop_id: str) -> Optional[Dict[str, Any]]:
         for r in delay_rows
     ]
 
-    # Routes serving this stop
+    # Routes serving this stop. agency_id added to every join clause so
+    # we don't pull in another agency's route_id="31" when this stop's
+    # agency also uses "31" (post-009 the data is correctly partitioned;
+    # this protects the query from cross-agency JOIN bleed).
     route_rows = conn.execute(
         text("""
         SELECT DISTINCT r.route_id, r.route_short_name, r.route_long_name,
                COALESCE(r.route_color, '3b82f6') AS route_color
         FROM gtfs_stop_times st
-        JOIN gtfs_trips  t ON t.trip_id  = st.trip_id
-        JOIN gtfs_routes r ON r.route_id = t.route_id
+        JOIN gtfs_trips  t ON t.agency_id = st.agency_id
+                          AND t.trip_id   = st.trip_id
+        JOIN gtfs_routes r ON r.agency_id = t.agency_id
+                          AND r.route_id  = t.route_id
         WHERE st.stop_id = :stop_id
         ORDER BY r.route_short_name NULLS LAST
         """),
@@ -575,8 +580,10 @@ def get_stop_detail(conn: Connection, stop_id: str) -> Optional[Dict[str, Any]]:
         SELECT DISTINCT st.departure_time, t.route_id,
                r.route_short_name, t.trip_headsign, t.direction_id
         FROM gtfs_stop_times st
-        JOIN gtfs_trips  t ON t.trip_id  = st.trip_id
-        JOIN gtfs_routes r ON r.route_id = t.route_id
+        JOIN gtfs_trips  t ON t.agency_id = st.agency_id
+                          AND t.trip_id   = st.trip_id
+        JOIN gtfs_routes r ON r.agency_id = t.agency_id
+                          AND r.route_id  = t.route_id
         WHERE st.stop_id = :stop_id
         ORDER BY st.departure_time
         LIMIT 12
@@ -624,19 +631,26 @@ def get_route_geo(conn: Connection, route_id: str) -> Dict[str, Any]:
     import json as _json
     features: List[Dict[str, Any]] = []
 
-    # Pick the most-used shape_id for this route
+    # Pick the most-used (agency_id, shape_id) for this route_id.
+    # NOTE: this function takes route_id alone — when multiple agencies use
+    # the same route_id (post-009 with composite PKs they coexist), the
+    # subquery's GROUP BY now keys by (agency_id, shape_id) so the JOIN to
+    # gtfs_shape_geoms is unambiguous. The most-trip-popular agency wins.
+    # A follow-up sprint should add an explicit agency_id query param to
+    # /routes/{route_id}/geo for disambiguation.
     shape_row = conn.execute(
         text("""
-        SELECT sg.shape_id, ST_AsGeoJSON(sg.geom)::json AS geometry
+        SELECT sg.shape_id, sg.agency_id, ST_AsGeoJSON(sg.geom)::json AS geometry
         FROM gtfs_shape_geoms sg
         JOIN (
-            SELECT shape_id, COUNT(*) AS n
+            SELECT agency_id, shape_id, COUNT(*) AS n
             FROM gtfs_trips
             WHERE route_id = :route_id AND shape_id IS NOT NULL
-            GROUP BY shape_id
+            GROUP BY agency_id, shape_id
             ORDER BY n DESC
             LIMIT 1
-        ) mc ON mc.shape_id = sg.shape_id
+        ) mc ON mc.agency_id = sg.agency_id
+            AND mc.shape_id  = sg.shape_id
         """),
         {"route_id": route_id},
     ).mappings().first()
@@ -647,14 +661,17 @@ def get_route_geo(conn: Connection, route_id: str) -> Dict[str, Any]:
             "properties": {"feature_type": "shape", "route_id": route_id},
         })
 
-    # Unique stops along the route
+    # Unique stops along the route. As above, JOINs use composite
+    # (agency_id, trip_id) so cross-agency JOIN bleed can't happen; result
+    # still aggregates across agencies that share the route_id.
     stop_rows = conn.execute(
         text("""
         SELECT s.stop_id, s.stop_name, s.stop_code, s.stop_lat, s.stop_lon,
                ST_AsGeoJSON(s.geom)::json AS geometry,
                MIN(st.stop_sequence) AS seq
         FROM gtfs_stop_times st
-        JOIN gtfs_trips t ON t.trip_id  = st.trip_id
+        JOIN gtfs_trips t ON t.agency_id = st.agency_id
+                         AND t.trip_id   = st.trip_id
         JOIN gtfs_stops s ON s.stop_id  = st.stop_id
         WHERE t.route_id = :route_id
           AND s.geom IS NOT NULL
@@ -809,8 +826,10 @@ def get_realtime_departures(
                 LIMIT 1
             ) AS current_delay_seconds
         FROM gtfs_stop_times st
-        JOIN gtfs_trips  t ON t.trip_id  = st.trip_id
-        JOIN gtfs_routes r ON r.route_id = t.route_id
+        JOIN gtfs_trips  t ON t.agency_id = st.agency_id
+                          AND t.trip_id   = st.trip_id
+        JOIN gtfs_routes r ON r.agency_id = t.agency_id
+                          AND r.route_id  = t.route_id
         WHERE st.stop_id = :stop_id
         ORDER BY st.departure_time
         LIMIT 20
@@ -830,21 +849,27 @@ def get_stop_reachability(
     the origin stop, within a transfer-time budget.
     Returns a GeoJSON Polygon (convex hull of reachable stops).
     """
-    # Step 1: routes serving the origin stop
+    # Step 1: routes serving the origin stop. Carry agency_id forward so
+    # Step 2 can filter to only that agency's routes (not all agencies
+    # sharing the same route_id label).
     route_rows = conn.execute(
         text("""
-        SELECT DISTINCT t.route_id
+        SELECT DISTINCT t.agency_id, t.route_id
         FROM gtfs_stop_times st
-        JOIN gtfs_trips t ON t.trip_id = st.trip_id
+        JOIN gtfs_trips t ON t.agency_id = st.agency_id
+                         AND t.trip_id   = st.trip_id
         WHERE st.stop_id = :stop_id
         """),
         {"stop_id": stop_id},
     ).mappings().all()
     route_ids = [r["route_id"] for r in route_rows]
+    agency_ids = list({r["agency_id"] for r in route_rows})
     if not route_ids:
         return {"type": "FeatureCollection", "features": []}
 
-    # Step 2: all stops reachable on those routes (direct, no transfers)
+    # Step 2: all stops reachable on those routes (direct, no transfers).
+    # Filtering by t.agency_id keeps us within the origin stop's agency
+    # network so we don't pull in another agency's route="31" stops.
     hull_row = conn.execute(
         text("""
         SELECT
@@ -855,12 +880,14 @@ def get_stop_reachability(
             )::json AS hull_geom,
             COUNT(DISTINCT s.stop_id) AS stop_count
         FROM gtfs_stop_times st
-        JOIN gtfs_trips t ON t.trip_id = st.trip_id
+        JOIN gtfs_trips t ON t.agency_id = st.agency_id
+                         AND t.trip_id   = st.trip_id
         JOIN gtfs_stops s ON s.stop_id = st.stop_id
-        WHERE t.route_id = ANY(:route_ids)
+        WHERE t.route_id  = ANY(:route_ids)
+          AND t.agency_id = ANY(:agency_ids)
           AND s.geom IS NOT NULL
         """),
-        {"route_ids": route_ids},
+        {"route_ids": route_ids, "agency_ids": agency_ids},
     ).mappings().first()
 
     if not hull_row or not hull_row["hull_geom"]:
@@ -905,13 +932,16 @@ def get_route_comparison(
             (
                 SELECT COUNT(DISTINCT st.stop_id)
                 FROM gtfs_stop_times st
-                JOIN gtfs_trips t2 ON t2.trip_id = st.trip_id
-                WHERE t2.route_id = r.route_id
+                JOIN gtfs_trips t2 ON t2.agency_id = st.agency_id
+                                  AND t2.trip_id   = st.trip_id
+                WHERE t2.route_id  = r.route_id
+                  AND t2.agency_id = r.agency_id
             ) AS stop_count,
             (
                 SELECT COUNT(DISTINCT t2.trip_id)
                 FROM gtfs_trips t2
-                WHERE t2.route_id = r.route_id
+                WHERE t2.route_id  = r.route_id
+                  AND t2.agency_id = r.agency_id
             ) AS trip_count
         FROM gtfs_routes r
         LEFT JOIN ops_trip_events e
@@ -919,7 +949,8 @@ def get_route_comparison(
            AND e.service_date BETWEEN :start_date AND :end_date
            AND e.delay_seconds IS NOT NULL
         WHERE r.route_id = ANY(:route_ids)
-        GROUP BY r.route_id, r.route_short_name, r.route_long_name, r.route_color
+        GROUP BY r.route_id, r.agency_id, r.route_short_name,
+                 r.route_long_name, r.route_color
         ORDER BY ARRAY_POSITION(CAST(:route_ids_ord AS text[]), r.route_id)
         """),
         {"route_ids": route_ids, "route_ids_ord": route_ids, "start_date": start_date, "end_date": end_date},
@@ -974,12 +1005,17 @@ def get_trip_plan(
             FROM origin_ids oi
             JOIN gtfs_stop_times st_o ON st_o.stop_id = oi.stop_id
             CROSS JOIN dest_ids di
+            -- Destination stop_times must be in the same agency as the
+            -- origin's trip, so trip_id matches the right agency_id.
             JOIN gtfs_stop_times st_d
-                ON  st_d.trip_id       = st_o.trip_id
+                ON  st_d.agency_id     = st_o.agency_id
+                AND st_d.trip_id       = st_o.trip_id
                 AND st_d.stop_id       = di.stop_id
                 AND st_d.stop_sequence > st_o.stop_sequence
-            JOIN gtfs_trips  t   ON t.trip_id   = st_o.trip_id
-            JOIN gtfs_routes r   ON r.route_id  = t.route_id
+            JOIN gtfs_trips  t   ON t.agency_id = st_o.agency_id
+                                AND t.trip_id   = st_o.trip_id
+            JOIN gtfs_routes r   ON r.agency_id = t.agency_id
+                                AND r.route_id  = t.route_id
             JOIN gtfs_stops  s_o ON s_o.stop_id = st_o.stop_id
             JOIN gtfs_stops  s_d ON s_d.stop_id = st_d.stop_id
             ORDER BY t.route_id, st_o.departure_time
@@ -1252,8 +1288,11 @@ def get_schedule_drift(conn: Connection, agency_id: str, route_id: str, months_b
                 LEAD(so.observed_arrival)   OVER w AS next_observed
             FROM stop_observations so
             JOIN gtfs_stop_times gst
-                ON gst.trip_id = so.trip_id AND gst.stop_id = so.stop_id
-            JOIN gtfs_trips gt ON gt.trip_id = so.trip_id
+                ON gst.agency_id = so.agency_id
+               AND gst.trip_id   = so.trip_id
+               AND gst.stop_id   = so.stop_id
+            JOIN gtfs_trips gt ON gt.agency_id = so.agency_id
+                              AND gt.trip_id   = so.trip_id
             WHERE so.agency_id     = :agency_id
               AND so.route_id      = :route_id
               AND so.service_date >= :cutoff_date
@@ -1416,8 +1455,10 @@ def get_traffic_transit_impact(conn: Connection) -> list[dict]:
                    gr.route_color
             FROM affected_stops ast
             JOIN gtfs_stop_times gst ON gst.stop_id = ast.stop_id
-            JOIN gtfs_trips      gt  ON gt.trip_id  = gst.trip_id
-            JOIN gtfs_routes     gr  ON gr.route_id = gt.route_id
+            JOIN gtfs_trips      gt  ON gt.agency_id = gst.agency_id
+                                    AND gt.trip_id   = gst.trip_id
+            JOIN gtfs_routes     gr  ON gr.agency_id = gt.agency_id
+                                    AND gr.route_id  = gt.route_id
         ),
         historical AS (
             SELECT route_id,
