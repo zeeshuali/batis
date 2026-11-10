@@ -1,8 +1,11 @@
 # BATIS Changelog
 
-Newest first. Update this file (and PROGRESS.md and memory) after every change.
+Newest first. **Rule:** after every change, update this file, PROGRESS.md, CLAUDE.md and memory in the same turn (CLAUDE.md rule 10).
 
 ## 2026-11-10
+
+### Process rule
+- Added CLAUDE.md rule 10: after every change, update memory, documents and the changelog before reporting done, and commit them with the change.
 
 ### Backfill respects the 511 limit and retries at the next run
 - Before each month the worker checks the remaining 511 budget from `api_call_log`. Below `stop_obs_backfill_min_budget` (10) it stops without error and prints that the next scheduled run retries, so the live poll keeps its share. A month that fails (for example HTTP 429) stays "missing" and is retried by the next 03:00 run, so history builds gradually. Tests: 230 backend.

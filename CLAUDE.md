@@ -1,7 +1,7 @@
 # BATIS — Claude Project Memory
 _Last updated: 2026-11-10_
 
-**Always, at the end of every work session:** update `CHANGELOG.md`, `PROGRESS.md` and memory (user standing instruction, 2026-11-10).
+**RULE (user standing instruction, 2026-11-10): after EVERY change, update memory, the documents and the changelog.** Do it in the same turn as the change, before reporting it done, not only at the end of a session. See rule 10 below.
 
 This file is Claude's persistent memory for the BATIS project. Read this at the start of every session before touching any code.
 
@@ -250,3 +250,9 @@ VITE_API_KEY=...                   # X-API-Key for frontend requests
 7. **Add `sentence-transformers` and `httpx` to requirements.txt** if touching the AI pipeline.
 8. When adding new FastAPI routes, place more specific paths (e.g., `/routes/compare`) BEFORE parameterised ones (e.g., `/routes/{route_id}/geo`).
 9. **NEVER use synthetic data. Always use live data.** No seeded, random, mock or placeholder rows in the database, ETL, or UI. If live data is missing from the DB, read the logs of the step that should have filled it (ETL output, loader errors, API responses, `docker logs batis-postgres-1`), find the root cause, fix it, re-run, and verify row counts and sources. An honest empty/"no data" state beats fake numbers. Only `backend/tests/` fixtures in the throwaway test DB may use hand-made rows. (The previous violation, `seed_from_static.py`, was removed 2026-11-10.)
+10. **After every change, update memory, documents and the changelog, before saying the work is done.** A change is any code, schema, config, cron, data load or purge, or behaviour change.
+    - `CHANGELOG.md`: add an entry under the current date (what changed, why, how it was verified, test counts).
+    - `PROGRESS.md`: update the "Current status" block (open tasks, what is done).
+    - `CLAUDE.md` and the other docs the change touches (counts, tables, endpoints, commands, DB state).
+    - Memory (`~/.claude/projects/-home-mza-projects-batis/memory/`): add or update the relevant file and its `MEMORY.md` line.
+    - Commit the doc updates together with the change. If nothing in a category needs updating, say so in the final report instead of skipping silently.
