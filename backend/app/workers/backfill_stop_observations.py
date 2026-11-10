@@ -18,6 +18,7 @@ import logging
 import sys
 
 from app.core.config import get_settings
+from app.core.run_log import five11_budget_remaining
 from app.db import get_engine
 from app.services.five11_stop_observations import backfill_last_n_months, backfill_step
 
@@ -37,6 +38,13 @@ def main() -> int:
         print(f"[backfill] Daily step: loading up to {per_run} missing month(s), one transaction each...")
         results = {}
         for _ in range(per_run):
+            s = get_settings()
+            with engine.connect() as chk:
+                left = five11_budget_remaining(chk, s.five11_rate_limit_per_hour)
+            if left < s.stop_obs_backfill_min_budget:
+                print(f"[backfill] 511 budget low ({left} of {s.five11_rate_limit_per_hour} requests left "
+                      f"this hour, need {s.stop_obs_backfill_min_budget}). Stopping; the next scheduled run retries.")
+                return 0
             # Commit each month separately so a failure in a later month keeps earlier ones.
             with engine.begin() as conn:
                 step = backfill_step(conn, months_per_run=1)
@@ -54,7 +62,7 @@ def main() -> int:
             print(f"  {ym}: {rows:,} rows")
         else:
             failed += 1
-            print(f"  {ym}: FAILED (see job_runs / the Status tab)")
+            print(f"  {ym}: FAILED (see the Backend tab). It stays missing, so the next scheduled run retries it.")
     return 1 if failed else 0
 
 

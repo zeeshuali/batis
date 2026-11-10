@@ -4,6 +4,9 @@ Newest first. Update this file (and PROGRESS.md and memory) after every change.
 
 ## 2026-11-10
 
+### Backfill respects the 511 limit and retries at the next run
+- Before each month the worker checks the remaining 511 budget from `api_call_log`. Below `stop_obs_backfill_min_budget` (10) it stops without error and prints that the next scheduled run retries, so the live poll keeps its share. A month that fails (for example HTTP 429) stays "missing" and is retried by the next 03:00 run, so history builds gradually. Tests: 230 backend.
+
 ### Backfill now loads 2 months per night
 - `stop_obs_backfill_months_per_run` default 1 -> 2. The worker commits each month in its own transaction, so a failure in the second month keeps the first, and it stops after a failure or when nothing is left. 9 months remain, so about 5 nights. Tests: 229 backend (+3).
 

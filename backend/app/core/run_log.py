@@ -171,6 +171,13 @@ def _finish(run_id, status: str, handle: JobRun, error: str | None) -> None:
         pass
 
 
+def five11_budget_remaining(conn, limit: int) -> int:
+    """511 requests left in the rolling hour, from api_call_log (every 511 call is logged)."""
+    used = conn.execute(text(
+        "SELECT COUNT(*) FROM api_call_log WHERE source = '511' AND called_at > now() - interval '1 hour'")).scalar() or 0
+    return max(0, limit - int(used))
+
+
 def prune_run_log(conn, days: int) -> None:
     conn.execute(text("DELETE FROM api_call_log WHERE called_at < now() - make_interval(days => :d)"), {"d": days})
     conn.execute(text("DELETE FROM job_runs WHERE started_at < now() - make_interval(days => :d)"), {"d": days})

@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     # newest first, never older than max_months_back. Raise these to deepen history.
     stop_obs_backfill_months_per_run: int = 2
     stop_obs_backfill_max_months_back: int = 12
+    # Do not start another month when fewer than this many 511 requests remain this hour
+    # (keeps room for the live poll). The next scheduled run retries.
+    stop_obs_backfill_min_budget: int = 10
 
     # Cross-agency transfers are matched spatially. Links are stored up to the largest
     # radius and the user picks one (<= max) at read time.
