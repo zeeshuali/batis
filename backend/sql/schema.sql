@@ -526,19 +526,36 @@ $$;
 
 -- === Transfer Reliability Matrix (Sprint 4a, Feature 1) ===
 -- See backend/sql/migrations/004_transfer_reliability.sql for the rationale.
+CREATE INDEX IF NOT EXISTS idx_gtfs_stops_geog
+    ON gtfs_stops USING gist ((geom::geography));
+
+-- Cross-agency stop pairs within the largest configured radius (migration 011).
+CREATE TABLE IF NOT EXISTS stop_transfer_links (
+    from_stop_pk  bigint NOT NULL REFERENCES gtfs_stops(stop_pk) ON DELETE CASCADE,
+    to_stop_pk    bigint NOT NULL REFERENCES gtfs_stops(stop_pk) ON DELETE CASCADE,
+    distance_m    integer NOT NULL,
+    PRIMARY KEY (from_stop_pk, to_stop_pk)
+);
+CREATE INDEX IF NOT EXISTS idx_stop_transfer_links_to ON stop_transfer_links (to_stop_pk);
+
 CREATE TABLE IF NOT EXISTS transfer_reliability (
     id                          bigserial PRIMARY KEY,
     from_agency                 text NOT NULL,
     to_agency                   text NOT NULL,
     transfer_stop_id            text NOT NULL,
+    from_stop_pk                bigint NOT NULL REFERENCES gtfs_stops(stop_pk) ON DELETE CASCADE,
+    to_stop_pk                  bigint NOT NULL REFERENCES gtfs_stops(stop_pk) ON DELETE CASCADE,
+    to_stop_id                  text NOT NULL,
+    distance_m                  integer NOT NULL,
     scheduled_transfer_minutes  numeric(8,2),
     success_rate_pct            numeric(5,2),
     median_gap_seconds          integer,
     n_observations              integer NOT NULL DEFAULT 0,
     computed_at                 timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT transfer_reliability_pair_distinct CHECK (from_agency <> to_agency),
-    CONSTRAINT transfer_reliability_unique UNIQUE (from_agency, to_agency, transfer_stop_id)
+    CONSTRAINT transfer_reliability_unique UNIQUE (from_stop_pk, to_stop_pk)
 );
+CREATE INDEX IF NOT EXISTS idx_transfer_reliability_distance ON transfer_reliability (distance_m);
 CREATE INDEX IF NOT EXISTS idx_transfer_reliability_pair
     ON transfer_reliability (from_agency, to_agency);
 CREATE INDEX IF NOT EXISTS idx_transfer_reliability_observed

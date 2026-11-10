@@ -446,11 +446,20 @@ def transfers_deserts(
     return transfer_deserts_geojson(rows)
 
 
+@app.get("/transfers/radii", dependencies=[Depends(api_key_dependency)])
+def transfers_radii():
+    """Walking-distance radii (metres) the user can pick for transfer matching, plus the default."""
+    from app.services.transfer_reliability import get_transfer_radii
+    return get_transfer_radii()
+
+
 @app.get("/transfers/reliability", dependencies=[Depends(api_key_dependency)])
 def transfers_reliability(
     from_agency: Optional[str] = Query(default=None),
     to_agency:   Optional[str] = Query(default=None),
     min_observations: int = Query(default=0, ge=0),
+    radius_m: Optional[int] = Query(default=None, ge=0, le=1000,
+                                    description="Max walking distance between stops; see /transfers/radii"),
     limit: int = Query(default=500, ge=1, le=2000),
     conn: Connection = Depends(get_conn),
 ):
@@ -463,6 +472,7 @@ def transfers_reliability(
         from_agency=from_agency,
         to_agency=to_agency,
         min_observations=min_observations,
+        radius_m=radius_m,
         limit=limit,
     )
 

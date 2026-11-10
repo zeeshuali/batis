@@ -229,7 +229,7 @@ def main() -> None:
     try:
         from app.services.transfer_reliability import compute_transfer_reliability
         with engine.begin() as conn:
-            n = compute_transfer_reliability(conn, days=14)
+            n = compute_transfer_reliability(conn, days=14)  # window ends at newest data; also refreshes stop_transfer_links
         print(f"     Wrote {n} (from_agency, to_agency, transfer_stop) rows.")
     except Exception as e:
         print(f"     transfer_reliability failed (skipping): {e}")

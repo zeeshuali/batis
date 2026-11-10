@@ -1,15 +1,18 @@
-"""Compute the cross-agency transfer reliability matrix.
+"""Compute the cross-agency transfer reliability matrix (spatial matching).
 
-For each (from_agency, to_agency, transfer_stop_id) tuple, count how often
-a passenger arriving on `from_agency` at the stop could catch the next
-`to_agency` vehicle at the same stop within an acceptable wait.
+Two stops of different agencies form a transfer point when they are within the
+largest configured radius (settings.transfer_radii_m, default max 400 m).
+`stop_transfer_links` stores those pairs with their distance. For every arrival
+at the "from" stop we look at the next arrival at the linked "to" stop within
+GIVE_UP_SECONDS. The transfer succeeds when that gap is at least the walk time
+(max(60 s, distance / walking speed)).
 
-Output goes into the `transfer_reliability` table; populated nightly by
-`run_data_jobs.py`.
+The radius the user picks (50..400 m) is applied at READ time on `distance_m`, so
+changing it never needs a recompute.
 
-Source: `ops_trip_events`. When the 511.org historic archive ingestor lands
-the input table swaps to `stop_observations` without a schema change — same
-columns (agency_id, stop_id, scheduled_arrival, actual_arrival) on both.
+Sources: `stop_observations` (observed_arrival, from the 511 archive) and
+`ops_trip_events` (live RT). RT rows are skipped for any (agency, service_date)
+already present in stop_observations so no arrival is counted twice.
 """
 from __future__ import annotations
 
@@ -19,134 +22,146 @@ from typing import Dict, Any
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
+from app.core.config import get_settings
 
-# Minimum gap (seconds) between the "from" agency's arrival and the "to"
-# agency's arrival for the transfer to be considered feasible.
+
+# Floor for the walk time (seconds): even co-located stops need time to change vehicles.
 WALK_TIME_SAME_STOP_SECONDS = 60
 
-# Beyond this gap the passenger has given up — the connection is "missed".
-# Anything past 30 minutes is operationally a different trip, not a transfer.
+# Beyond this gap the passenger has given up: operationally a different trip.
 GIVE_UP_SECONDS = 1800
 
-# How many days back the compute job looks.
+# How many days back the compute job looks, counted from the newest data available.
 DEFAULT_LOOKBACK_DAYS = 7
+
+
+def refresh_stop_transfer_links(conn: Connection, max_radius_m: int | None = None) -> int:
+    """Rebuild stop_transfer_links: every cross-agency stop pair within max_radius_m.
+
+    Uses the GiST index on (geom::geography). Returns the number of directed pairs.
+    """
+    if max_radius_m is None:
+        max_radius_m = max(get_settings().transfer_radii_m)
+    conn.execute(text("TRUNCATE stop_transfer_links"))
+    n = conn.execute(text("""
+        INSERT INTO stop_transfer_links (from_stop_pk, to_stop_pk, distance_m)
+        SELECT a.stop_pk, b.stop_pk,
+               ROUND(ST_Distance(a.geom::geography, b.geom::geography))::int
+        FROM gtfs_stops a
+        JOIN gtfs_stops b
+          ON b.agency_id <> a.agency_id
+         AND ST_DWithin(a.geom::geography, b.geom::geography, :r)
+        WHERE a.geom IS NOT NULL AND b.geom IS NOT NULL
+    """), {"r": max_radius_m}).rowcount
+    return int(n or 0)
 
 
 def compute_transfer_reliability(
     conn: Connection,
     *,
     days: int = DEFAULT_LOOKBACK_DAYS,
-    walk_time_seconds: int = WALK_TIME_SAME_STOP_SECONDS,
+    end_date: date | None = None,
     give_up_seconds: int = GIVE_UP_SECONDS,
+    refresh_links: bool = True,
 ) -> int:
-    """Recompute the entire `transfer_reliability` table.
+    """Recompute the entire `transfer_reliability` table. Returns rows written.
 
-    Returns the number of (from, to, stop) rows written. Idempotent — the
-    UNIQUE constraint on (from_agency, to_agency, transfer_stop_id) is the
-    upsert key.
+    The window is [end_date - days, end_date]; end_date defaults to the newest
+    service_date found in stop_observations / ops_trip_events.
     """
-    end_date = date.today()
+    s = get_settings()
+    if refresh_links:
+        refresh_stop_transfer_links(conn)
+
+    if end_date is None:
+        end_date = conn.execute(text("""
+            SELECT GREATEST(
+                (SELECT MAX(service_date) FROM stop_observations),
+                (SELECT MAX(service_date) FROM ops_trip_events))
+        """)).scalar() or date.today()
     start_date = end_date - timedelta(days=days)
 
-    # Compute strategy:
-    # 1. transfer_stops — pre-filter to stops served by ≥2 distinct agencies
-    #    in the window.  Most stops in the catalog only see one agency, so
-    #    this trims the outer rowset by ~99% before the LATERAL kicks in.
-    # 2. event_pairs — for each "from" arrival at a transfer stop, find the
-    #    next arrival of any *different* agency at the same stop within
-    #    GIVE_UP_SECONDS.  The LATERAL is O(N log N) on top of
-    #    idx_ops_trip_events_stop_arrival (added by migration 004).
-    # 3. aggregated — success_rate + median gap per (from, to, stop) tuple.
-    #
-    # FILTER (WHERE ... IS NOT NULL) on the scheduled-percentile aggregate
-    # silently drops pairs where either side has no schedule — common in
-    # the dev DB since only ~3% of rows have scheduled_arrival populated
-    # (the rest never matched gtfs_stop_times).  Without FILTER, NULL would
-    # poison the median.
+    conn.execute(text("DROP TABLE IF EXISTS _tr_events"))
+    conn.execute(text("""
+        CREATE TEMP TABLE _tr_events ON COMMIT DROP AS
+        WITH linked AS (SELECT DISTINCT from_stop_pk AS stop_pk FROM stop_transfer_links)
+        SELECT o.stop_pk, o.agency_id, o.scheduled_arrival, o.observed_arrival AS actual_arrival
+        FROM stop_observations o
+        JOIN linked l ON l.stop_pk = o.stop_pk
+        WHERE o.service_date BETWEEN :sd AND :ed AND o.observed_arrival IS NOT NULL
+        UNION ALL
+        SELECT e.stop_pk, e.agency_id, e.scheduled_arrival, e.actual_arrival
+        FROM ops_trip_events e
+        JOIN linked l ON l.stop_pk = e.stop_pk
+        WHERE e.service_date BETWEEN :sd AND :ed AND e.actual_arrival IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM stop_observations o
+              WHERE o.agency_id = e.agency_id AND o.service_date = e.service_date
+              LIMIT 1)
+    """), {"sd": start_date, "ed": end_date})
+    conn.execute(text("CREATE INDEX ON _tr_events (stop_pk, actual_arrival)"))
+    conn.execute(text("ANALYZE _tr_events"))
+
+    conn.execute(text("DELETE FROM transfer_reliability"))
     rows = conn.execute(text("""
-        WITH transfer_stops AS (
-            SELECT stop_id
-            FROM ops_trip_events
-            WHERE service_date BETWEEN :start_date AND :end_date
-              AND stop_id IS NOT NULL
-              AND actual_arrival IS NOT NULL
-            GROUP BY stop_id
-            HAVING COUNT(DISTINCT agency_id) >= 2
+        WITH pairs AS (
+            SELECT l.from_stop_pk, l.to_stop_pk, l.distance_m,
+                   GREATEST(:floor_s, CEIL(l.distance_m / :speed))::int AS walk_s
+            FROM stop_transfer_links l
         ),
         event_pairs AS (
-            SELECT
-                a.agency_id              AS from_agency,
-                b.agency_id              AS to_agency,
-                a.stop_id                AS transfer_stop_id,
-                a.actual_arrival         AS from_actual,
-                a.scheduled_arrival      AS from_sched,
-                b.actual_arrival         AS to_actual,
-                b.scheduled_arrival      AS to_sched
-            FROM ops_trip_events a
-            JOIN transfer_stops ts ON ts.stop_id = a.stop_id
+            SELECT p.from_stop_pk, p.to_stop_pk, p.distance_m, p.walk_s,
+                   a.actual_arrival AS from_actual, a.scheduled_arrival AS from_sched,
+                   b.actual_arrival AS to_actual,   b.scheduled_arrival AS to_sched
+            FROM pairs p
+            JOIN _tr_events a ON a.stop_pk = p.from_stop_pk
             CROSS JOIN LATERAL (
-                SELECT agency_id, actual_arrival, scheduled_arrival
-                FROM ops_trip_events
-                WHERE stop_id = a.stop_id
+                SELECT actual_arrival, scheduled_arrival
+                FROM _tr_events
+                WHERE stop_pk = p.to_stop_pk
                   AND actual_arrival >  a.actual_arrival
-                  AND actual_arrival <= a.actual_arrival + (:give_up_seconds || ' seconds')::interval
-                  AND agency_id <> a.agency_id
-                  AND actual_arrival IS NOT NULL
+                  AND actual_arrival <= a.actual_arrival + make_interval(secs => :give_up)
                 ORDER BY actual_arrival ASC
                 LIMIT 1
             ) b
-            WHERE a.service_date BETWEEN :start_date AND :end_date
-              AND a.actual_arrival IS NOT NULL
         ),
         aggregated AS (
-            SELECT
-                from_agency,
-                to_agency,
-                transfer_stop_id,
-                COUNT(*)::int                                            AS n_observations,
-                ROUND((
-                    100.0
-                    * SUM(CASE WHEN EXTRACT(EPOCH FROM (to_actual - from_actual)) >= :walk_time_seconds THEN 1 ELSE 0 END)::numeric
-                    / COUNT(*)
-                ), 2)                                                    AS success_rate_pct,
+            SELECT from_stop_pk, to_stop_pk, distance_m,
+                COUNT(*)::int AS n_observations,
+                ROUND(100.0 * SUM(CASE WHEN EXTRACT(EPOCH FROM (to_actual - from_actual)) >= walk_s
+                                       THEN 1 ELSE 0 END)::numeric / COUNT(*), 2) AS success_rate_pct,
                 EXTRACT(EPOCH FROM percentile_cont(0.5) WITHIN GROUP (
-                    ORDER BY (to_actual - from_actual)
-                ))::int                                                  AS median_gap_seconds,
-                ROUND((
-                    EXTRACT(EPOCH FROM percentile_cont(0.5) WITHIN GROUP (
-                        ORDER BY (to_sched - from_sched)
-                    ) FILTER (WHERE from_sched IS NOT NULL AND to_sched IS NOT NULL))
-                    / 60.0
-                )::numeric, 2)                                           AS scheduled_transfer_minutes
+                    ORDER BY (to_actual - from_actual)))::int AS median_gap_seconds,
+                ROUND((EXTRACT(EPOCH FROM percentile_cont(0.5) WITHIN GROUP (
+                    ORDER BY (to_sched - from_sched))
+                    FILTER (WHERE from_sched IS NOT NULL AND to_sched IS NOT NULL)) / 60.0)::numeric, 2)
+                    AS scheduled_transfer_minutes
             FROM event_pairs
-            GROUP BY from_agency, to_agency, transfer_stop_id
+            GROUP BY from_stop_pk, to_stop_pk, distance_m
         )
         INSERT INTO transfer_reliability (
-            from_agency, to_agency, transfer_stop_id,
-            scheduled_transfer_minutes, success_rate_pct, median_gap_seconds,
-            n_observations
-        )
-        SELECT
-            from_agency, to_agency, transfer_stop_id,
-            scheduled_transfer_minutes, success_rate_pct, median_gap_seconds,
-            n_observations
-        FROM aggregated
-        ON CONFLICT (from_agency, to_agency, transfer_stop_id)
-        DO UPDATE SET
-            scheduled_transfer_minutes = EXCLUDED.scheduled_transfer_minutes,
-            success_rate_pct           = EXCLUDED.success_rate_pct,
-            median_gap_seconds         = EXCLUDED.median_gap_seconds,
-            n_observations             = EXCLUDED.n_observations,
-            computed_at                = now()
+            from_agency, to_agency, transfer_stop_id, from_stop_pk, to_stop_pk, to_stop_id,
+            distance_m, scheduled_transfer_minutes, success_rate_pct, median_gap_seconds,
+            n_observations)
+        SELECT fs.agency_id, ts.agency_id, fs.stop_id, g.from_stop_pk, g.to_stop_pk, ts.stop_id,
+               g.distance_m, g.scheduled_transfer_minutes, g.success_rate_pct,
+               g.median_gap_seconds, g.n_observations
+        FROM aggregated g
+        JOIN gtfs_stops fs ON fs.stop_pk = g.from_stop_pk
+        JOIN gtfs_stops ts ON ts.stop_pk = g.to_stop_pk
         RETURNING id
     """), {
-        "start_date":         start_date,
-        "end_date":           end_date,
-        "walk_time_seconds":  walk_time_seconds,
-        "give_up_seconds":    give_up_seconds,
+        "sd": start_date, "ed": end_date,
+        "floor_s": WALK_TIME_SAME_STOP_SECONDS,
+        "speed": s.transfer_walk_speed_mps,
+        "give_up": give_up_seconds,
     }).fetchall()
-
     return len(rows)
+
+
+def get_transfer_radii() -> Dict[str, Any]:
+    s = get_settings()
+    return {"radii_m": sorted(s.transfer_radii_m), "default_m": s.transfer_default_radius_m}
 
 
 def get_transfer_reliability(
@@ -155,16 +170,19 @@ def get_transfer_reliability(
     from_agency: str | None = None,
     to_agency:   str | None = None,
     min_observations: int = 0,
+    radius_m: int | None = None,
     limit: int = 500,
 ) -> list[Dict[str, Any]]:
     """Read the transfer_reliability table for the API.
 
-    Joins to gtfs_stops to surface a human-readable `transfer_stop_name`
-    alongside the bare id — the heatmap drill-down panel needs names so
-    planners can recognise the corridor.
+    Only pairs with distance_m <= radius_m are returned (default radius from
+    settings). transfer_stop_* describe the "from" stop and to_stop_* the "to" stop.
     """
-    clauses = ["tr.n_observations >= :min_observations"]
-    params: Dict[str, Any] = {"min_observations": min_observations, "limit": limit}
+    if radius_m is None:
+        radius_m = get_settings().transfer_default_radius_m
+    clauses = ["tr.n_observations >= :min_observations", "tr.distance_m <= :radius_m"]
+    params: Dict[str, Any] = {"min_observations": min_observations, "limit": limit,
+                              "radius_m": radius_m}
     if from_agency:
         clauses.append("tr.from_agency = :from_agency")
         params["from_agency"] = from_agency
@@ -178,20 +196,20 @@ def get_transfer_reliability(
             tr.from_agency,
             tr.to_agency,
             tr.transfer_stop_id,
-            s.stop_name AS transfer_stop_name,
+            tr.from_stop_pk,
+            fs.stop_name AS transfer_stop_name,
+            tr.to_stop_pk,
+            tr.to_stop_id,
+            ts.stop_name AS to_stop_name,
+            tr.distance_m,
             tr.scheduled_transfer_minutes,
             tr.success_rate_pct,
             tr.median_gap_seconds,
             tr.n_observations,
             tr.computed_at
         FROM transfer_reliability tr
-        LEFT JOIN LATERAL (
-            SELECT stop_name FROM gtfs_stops g
-             WHERE g.stop_id = tr.transfer_stop_id
-             ORDER BY (g.agency_id = tr.from_agency) DESC,
-                      (g.agency_id = tr.to_agency) DESC, g.agency_id
-             LIMIT 1
-        ) s ON TRUE
+        JOIN gtfs_stops fs ON fs.stop_pk = tr.from_stop_pk
+        JOIN gtfs_stops ts ON ts.stop_pk = tr.to_stop_pk
         WHERE {where}
         ORDER BY tr.n_observations DESC, tr.success_rate_pct ASC
         LIMIT :limit

@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     # 511 limit is 60 req/hour shared with other jobs, so keep this >= 120.
     five11_rt_poll_seconds: int = 180
 
+    # Cross-agency transfers are matched spatially. Links are stored up to the largest
+    # radius and the user picks one (<= max) at read time.
+    transfer_radii_m: list[int] = [50, 100, 150, 200, 300, 400]
+    transfer_default_radius_m: int = 150
+    transfer_walk_speed_mps: float = 1.2
+
     # Census TIGERweb — authoritative tract polygon REST service
     tigerweb_base_url: str = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/0/query"
 

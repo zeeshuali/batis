@@ -12,6 +12,11 @@ interface TransferRow {
   to_agency:   string;
   transfer_stop_id:   string;
   transfer_stop_name: string | null;
+  from_stop_pk:       number;
+  to_stop_pk:         number;
+  to_stop_id:         string;
+  to_stop_name:       string | null;
+  distance_m:         number;
   scheduled_transfer_minutes: number | null;
   success_rate_pct:           number | null;
   median_gap_seconds:         number | null;
@@ -37,16 +42,26 @@ export const TransferReliabilityPanel: React.FC = () => {
   const [error, setError]     = useState<string | null>(null);
   const [tick, setTick]       = useState(0);
   const [activePair, setActivePair] = useState<{ from: string; to: string } | null>(null);
+  const [radii, setRadii]     = useState<number[]>([]);
+  const [radius, setRadius]   = useState<number | null>(null);
+
+  // Radius options (and the default) come from the backend settings.
+  useEffect(() => {
+    api.get<{ radii_m: number[]; default_m: number }>("/transfers/radii")
+      .then(res => { setRadii(res.data.radii_m); setRadius(r => r ?? res.data.default_m); })
+      .catch(err => setError(err?.message ?? "Failed to load radii"));
+  }, []);
 
   useEffect(() => {
+    if (radius == null) return;
     let cancelled = false;
     setLoading(true); setError(null);
-    api.get<TransferRow[]>("/transfers/reliability", { params: { min_observations: 1, limit: 1000 } })
+    api.get<TransferRow[]>("/transfers/reliability", { params: { min_observations: 1, limit: 2000, radius_m: radius } })
       .then(res => { if (!cancelled) setRows(Array.isArray(res.data) ? res.data : []); })
       .catch(err => { if (!cancelled) setError(err?.message ?? "Failed to load"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [tick]);
+  }, [tick, radius]);
 
   // Only show agencies that actually appear in the transfer matrix — most of
   // the 47-row catalog has no transfer data, and rendering empty rows/columns
@@ -83,9 +98,9 @@ export const TransferReliabilityPanel: React.FC = () => {
       .sort((a, b) => (a.success_rate_pct ?? 100) - (b.success_rate_pct ?? 100))
       .slice(0, 20)
       .map(r => ({
-        id: r.transfer_stop_id,
-        primary: r.transfer_stop_name ?? r.transfer_stop_id,
-        secondary: `median gap ${Math.round((r.median_gap_seconds ?? 0))}s · ${r.n_observations} obs`,
+        id: `${r.from_stop_pk}-${r.to_stop_pk}`,
+        primary: `${r.transfer_stop_name ?? r.transfer_stop_id} → ${r.to_stop_name ?? r.to_stop_id}`,
+        secondary: `${r.distance_m} m · median gap ${Math.round((r.median_gap_seconds ?? 0))}s · ${r.n_observations} obs`,
         trailing: r.success_rate_pct == null ? "—" : `${Number(r.success_rate_pct).toFixed(0)}%`,
       }));
   }, [activePair, rows]);
@@ -97,9 +112,9 @@ export const TransferReliabilityPanel: React.FC = () => {
       .sort((a, b) => (a.success_rate_pct ?? 100) - (b.success_rate_pct ?? 100))
       .slice(0, 10)
       .map(r => ({
-        id: `${r.from_agency}-${r.to_agency}-${r.transfer_stop_id}`,
-        primary: `${r.from_agency}→${r.to_agency}: ${r.transfer_stop_name ?? r.transfer_stop_id}`,
-        secondary: `${r.n_observations} observations`,
+        id: `${r.from_stop_pk}-${r.to_stop_pk}`,
+        primary: `${r.from_agency}→${r.to_agency}: ${r.transfer_stop_name ?? r.transfer_stop_id} → ${r.to_stop_name ?? r.to_stop_id}`,
+        secondary: `${r.distance_m} m · ${r.n_observations} observations`,
         trailing: r.success_rate_pct == null ? "—" : `${Number(r.success_rate_pct).toFixed(0)}%`,
       }));
   }, [rows]);
@@ -107,16 +122,8 @@ export const TransferReliabilityPanel: React.FC = () => {
   if (error) {
     return <SectionError message={error} onRetry={() => setTick(t => t + 1)} />;
   }
-  if (loading && rows.length === 0) {
+  if ((loading || radius == null) && rows.length === 0) {
     return <Spinner />;
-  }
-  if (rows.length === 0) {
-    return (
-      <EmptyState
-        message="No transfer reliability data yet."
-        hint="The nightly compute job populates this from ops_trip_events. Run app.services.transfer_reliability.compute_transfer_reliability() once after a day of RT ingest."
-      />
-    );
   }
 
   return (
@@ -124,13 +131,23 @@ export const TransferReliabilityPanel: React.FC = () => {
       <div className="section__panel">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <h3 className="section__panel-title">Cross-agency transfer reliability</h3>
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            Walking distance between stops
+            <select value={radius ?? ""} onChange={e => setRadius(Number(e.target.value))}
+                    aria-label="Transfer radius in metres">
+              {radii.map(r => <option key={r} value={r}>{r} m</option>)}
+            </select>
+          </label>
           <ExportButton
             filename="transfer-reliability.csv"
             rows={rows.map(r => ({
               from_agency: r.from_agency,
               to_agency:   r.to_agency,
-              transfer_stop_id:   r.transfer_stop_id,
-              transfer_stop_name: r.transfer_stop_name,
+              from_stop_id:   r.transfer_stop_id,
+              from_stop_name: r.transfer_stop_name,
+              to_stop_id:     r.to_stop_id,
+              to_stop_name:   r.to_stop_name,
+              distance_m:     r.distance_m,
               success_rate_pct:   r.success_rate_pct,
               median_gap_seconds: r.median_gap_seconds,
               n_observations:     r.n_observations,
@@ -138,6 +155,12 @@ export const TransferReliabilityPanel: React.FC = () => {
           />
         </div>
 
+        {rows.length === 0 && (
+          <EmptyState
+            message={`No transfer data within ${radius} m.`}
+            hint="Stops of different agencies are matched by distance. Try a larger radius, or run compute_transfer_reliability() after loading stop_observations."
+          />
+        )}
         <div className="transfer-matrix">
           <table className="transfer-matrix__grid">
             <thead>

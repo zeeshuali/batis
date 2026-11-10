@@ -103,11 +103,11 @@ frontend test substrate that StopDrawer currently lacks.
 ## Local DB state (updated 2026-11-10, after migration 010 + ETL re-run)
 
 - `docker-compose.yml`: `postgres` (PostGIS 16, host port **5434**, persistent volume `batis_postgres_data`, creds `postgres`/`batis_dev`, `shm_size: 1gb`) and `postgres-test` (PostGIS 15, port **5433**, **tmpfs — wiped on stop**, used only by pytest).
-- `backend/.env` `DATABASE_URL` points at the persistent DB on **5434**. Schema + migrations 001–010 are applied.
+- `backend/.env` `DATABASE_URL` points at the persistent DB on **5434**. Schema + migrations 001–011 are applied.
 - Loaded: 621 routes, **20,260 stops** (185 stop_ids are shared by >1 agency), 90k trips, 3.17M stop_times (29 of 30 monitored agencies; **CR = Santa Cruz METRO has no 511 GTFS feed** and is reported as skipped), 1,772 census tracts + ambulatory, 2,629 fare products, 2,350 coverage cells, fare_burden, service_delivery_gap (688), per-stop features/safety/ADA gap (20,260 each).
 - `stop_observations`: **52.4M rows, 2026-09 and 2026-10** (about 0.3% have no stop_pk because the stop is missing from the feed; agency EM is unmonitored). The 12-month backfill (`python -m app.workers.backfill_stop_observations 12`, multi-hour, 60 req/hr) has not been run. Don't run two ETLs at once: the month-already-loaded check is not atomic and doubled this table once (fixed by deleting the second batch).
 - **Synthetic ops data removed (2026-11-10):** `seed_from_static.py` and its call in `run_data_jobs.py` are deleted. `ops_trip_events`, `trip_stop_snapshots`, `ops_headways`, `delay_predictions`, `bunching_predictions`, `demand_forecasts`, `crowding_predictions` were truncated (all 0 rows; backup `~/batis-backups/pre-synthetic-purge-20261110.dump`). They stay empty until `run_rt_ingestor` fills `ops_trip_events` from live 511 data. The RT ingestor was fixed (see CHANGELOG) and a live poll filled `rt_vehicle_positions_raw` and `ops_trip_events` with real 511 data; it only accumulates while uvicorn or `python -m app.workers.run_rt_ingestor` runs (poll every `FIVE11_RT_POLL_SECONDS`, default 180). Delay/bunching/demand/crowding UI shows empty states until then.
-- `transfer_reliability` is empty by design until it is reworked to match stops spatially.
+- `transfer_reliability` is matched spatially (migration 011, applied). `stop_transfer_links` has 35,140 directed cross-agency pairs up to 400 m. Dev DB holds a computed 2026-10-28..30 slice (19,151 pairs). The nightly step recomputes from the newest data. Radius options live in `config.py` and are chosen in the UI.
 - **pgvector is not installed** in the `postgis/postgis:16` image, so `ai_embeddings` does not exist and the AI assistant's RAG is inactive.
 - Safety scores use Oakland incidents only (the Berkeley fetch was removed 2026-11-10; it is out of scope).
 - Backup taken before migration 010: `~/batis-backups/pre-010-*.dump` (all tables except stop_observations data).
@@ -222,8 +222,8 @@ VITE_API_KEY=...                   # X-API-Key for frontend requests
   calls. Writers resolve it with
   `(SELECT stop_pk FROM gtfs_stops WHERE agency_id = .. AND stop_id = ..)`.
   HTTP stop endpoints accept optional `?agency_id=` to disambiguate.
-  `transfer_reliability` still matches the same stop_id label across agencies
-  (to be redone spatially). Plan:
+  `transfer_reliability` now matches spatially via `stop_transfer_links`
+  (migration 011) and is keyed by `(from_stop_pk, to_stop_pk)`. Plan:
   `docs/superpowers/plans/2026-11-10-stop-surrogate-key.md`.
 - **Tests must not touch the dev DB:** `tests/conftest.py` pins
   `DATABASE_URL` to the 5433 test DB. Don't put `;` inside `--` comments in
