@@ -58,18 +58,24 @@ def _fetch_feed(url: str) -> gtfs_realtime_pb2.FeedMessage:
     return feed
 
 
-def _extract_agency_id(trip_descriptor, route_id: str | None) -> str:
+def _extract_agency_id(trip_descriptor, route_id: str | None, trip_id: str | None = None,
+                       default: str | None = "AC") -> str | None:
     """
     Resolve agency_id from a GTFS-RT TripDescriptor.
-    Checks the agency_id field first (present in some 511.org feeds), then
-    falls back to a 'AGENCY:route' prefix in route_id (e.g. 'AC:1T' → 'AC').
+    Checks the agency_id field first (present in some 511.org feeds), then a
+    'AGENCY:route' prefix in route_id (e.g. 'AC:1T' -> 'AC'), then a 'AGENCY:trip'
+    prefix in trip_id (BART trip updates carry no route_id at all). Falls back to
+    `default`; trip-update ingestion passes default=None so an unknown agency is
+    skipped instead of being mislabelled.
     """
     agency_field = getattr(trip_descriptor, "agency_id", "") or ""
     if agency_field:
         return agency_field
     if route_id and ":" in route_id:
         return route_id.split(":", 1)[0]
-    return "AC"
+    if trip_id and ":" in trip_id:
+        return trip_id.split(":", 1)[0]
+    return default
 
 
 def _insert_vehicle_positions(conn: Connection, feed: gtfs_realtime_pb2.FeedMessage) -> list[dict]:
@@ -193,7 +199,8 @@ def _parse_gtfs_time(service_date: date, time_str: str) -> datetime | None:
         return None
 
 
-def _process_trip_updates(conn: Connection, feed: gtfs_realtime_pb2.FeedMessage) -> int:
+def _process_trip_updates(conn: Connection, feed: gtfs_realtime_pb2.FeedMessage,
+                          stats: dict | None = None) -> int:
     """
     Parse GTFS-RT trip updates and write stop-level ops events into ops_trip_events.
     Existing stop-level rows for the same trip+service_date are replaced on each poll.
@@ -211,7 +218,12 @@ def _process_trip_updates(conn: Connection, feed: gtfs_realtime_pb2.FeedMessage)
         tu = entity.trip_update
         trip_desc = tu.trip
         # Resolve the agency from the raw (still prefixed) route_id first, then strip.
-        agency_id = _extract_agency_id(trip_desc, trip_desc.route_id or None)
+        agency_id = _extract_agency_id(trip_desc, trip_desc.route_id or None,
+                                       trip_desc.trip_id or None, default=None)
+        if agency_id is None:
+            if stats is not None:
+                stats["skipped_no_agency"] = stats.get("skipped_no_agency", 0) + 1
+            continue
         trip_id  = _strip_agency_prefix(trip_desc.trip_id  or None, agency_id)
         route_id = _strip_agency_prefix(trip_desc.route_id or None, agency_id)
         if not trip_id:
@@ -254,6 +266,24 @@ def _process_trip_updates(conn: Connection, feed: gtfs_realtime_pb2.FeedMessage)
 
     if not updates:
         return 0
+
+    # Some feeds (BART) send trip updates without a route_id. ops_trip_events.route_id is
+    # NOT NULL, so look the route up from the static trips and skip what cannot be resolved.
+    need_route = {(u["agency_id"], u["trip_id"]) for u in updates if not u["route_id"]}
+    if need_route:
+        found = {(r[0], r[1]): r[2] for r in conn.execute(
+            text("SELECT agency_id, trip_id, route_id FROM gtfs_trips "
+                 "WHERE (agency_id, trip_id) IN (SELECT * FROM unnest(CAST(:a AS text[]), CAST(:t AS text[])))"),
+            {"a": [a for a, _ in need_route], "t": [t for _, t in need_route]})}
+        for u in updates:
+            if not u["route_id"]:
+                u["route_id"] = found.get((u["agency_id"], u["trip_id"]))
+        before = len(updates)
+        updates = [u for u in updates if u["route_id"]]
+        if stats is not None:
+            stats["skipped_no_route"] = stats.get("skipped_no_route", 0) + (before - len(updates))
+        if not updates:
+            return 0
 
     # Batch-fetch scheduled arrivals for all trips in this feed
     scheduled: dict[tuple[str, str, int], str] = {}
@@ -369,10 +399,13 @@ def ingest_five11_realtime_once() -> dict:
         counts["errors"].append(f"trip-updates fetch: {exc}")
 
     with engine.begin() as conn:
+        # Each stage runs in a SAVEPOINT: one failing stage rolls back only itself, so it can
+        # no longer abort the transaction and discard the stages that succeeded.
         if vehicle_feed is not None:
             try:
-                rows = _insert_vehicle_positions(conn, vehicle_feed)
-                _insert_ops_trip_events(conn, rows)
+                with conn.begin_nested():
+                    rows = _insert_vehicle_positions(conn, vehicle_feed)
+                    _insert_ops_trip_events(conn, rows)
                 counts["vehicles"] = len(rows)
                 counts["trip_events"] = sum(1 for r in rows if r.get("trip_id") and r.get("route_id"))
             except Exception as exc:
@@ -380,12 +413,14 @@ def ingest_five11_realtime_once() -> dict:
 
         if trip_updates_feed is not None:
             try:
-                counts["trip_update_rows"] = _process_trip_updates(conn, trip_updates_feed)
+                with conn.begin_nested():
+                    counts["trip_update_rows"] = _process_trip_updates(conn, trip_updates_feed, stats=counts)
             except Exception as exc:
                 counts["errors"].append(f"trip-updates insert: {exc}")
 
         try:
-            _cleanup_old_positions(conn)
+            with conn.begin_nested():
+                _cleanup_old_positions(conn)
         except Exception as exc:
             counts["errors"].append(f"cleanup: {exc}")
 
@@ -404,7 +439,9 @@ def run_polling_loop(poll_interval_seconds: int = 30, stop_event: "threading.Eve
                 counts = ingest_five11_realtime_once()
                 errors = counts.get("errors", [])
                 jr.set(rows=counts["vehicles"] + counts["trip_update_rows"],
-                       vehicles=counts["vehicles"], trip_update_rows=counts["trip_update_rows"])
+                       vehicles=counts["vehicles"], trip_update_rows=counts["trip_update_rows"],
+                       skipped_no_agency=counts.get("skipped_no_agency", 0),
+                       skipped_no_route=counts.get("skipped_no_route", 0))
                 if errors:
                     jr.fail("; ".join(errors))
             status = "with errors" if errors else "OK"

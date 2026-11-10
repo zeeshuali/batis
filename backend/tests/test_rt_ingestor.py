@@ -99,3 +99,66 @@ class TestProcessTripUpdatesSmoke:
         assert insert_rows[0]["agency_id"] == "SF"
         assert insert_rows[0]["trip_id"] == "T1"
         assert insert_rows[0]["stop_id"] == "100"
+
+
+class TestTripUpdatesWithoutRouteId:
+    """Regression: BART trip updates carry no route_id. They were labelled agency AC and failed
+    the NOT NULL route_id insert, which aborted the whole poll (vehicles included)."""
+
+    def _feed(self, trip_id, route_id=""):
+        from google.transit import gtfs_realtime_pb2
+        feed = gtfs_realtime_pb2.FeedMessage()
+        feed.header.gtfs_realtime_version = "2.0"
+        ent = feed.entity.add()
+        ent.id = "1"
+        ent.trip_update.trip.trip_id = trip_id
+        if route_id:
+            ent.trip_update.trip.route_id = route_id
+        stu = ent.trip_update.stop_time_update.add()
+        stu.stop_id = "BA:12TH"
+        stu.stop_sequence = 1
+        stu.arrival.delay = 30
+        return feed
+
+    def test_agency_comes_from_trip_id_prefix_and_route_from_static_trips(self):
+        from unittest.mock import MagicMock
+        from app.services.five11_rt_ingestor import _extract_agency_id, _process_trip_updates
+
+        feed = self._feed("BA:919134610")
+        assert _extract_agency_id(feed.entity[0].trip_update.trip, None, "BA:919134610", default=None) == "BA"
+
+        conn = MagicMock()
+        calls = []
+
+        def execute(stmt, params=None):
+            sql = str(stmt)
+            calls.append(sql)
+            r = MagicMock()
+            if "FROM gtfs_trips" in sql:
+                r.__iter__ = lambda self: iter([("BA", "919134610", "RED")])
+            else:
+                r.mappings.return_value.all.return_value = []
+            return r
+
+        conn.execute.side_effect = execute
+        stats = {}
+        assert _process_trip_updates(conn, feed, stats=stats) == 1
+        rows = conn.execute.call_args_list[-1].args[1]
+        assert rows[0]["agency_id"] == "BA" and rows[0]["route_id"] == "RED" and rows[0]["trip_id"] == "919134610"
+
+    def test_unresolvable_trips_are_skipped_not_inserted(self):
+        from unittest.mock import MagicMock
+        from app.services.five11_rt_ingestor import _process_trip_updates
+
+        conn = MagicMock()
+        stats = {}
+        # no agency anywhere -> skipped
+        assert _process_trip_updates(conn, self._feed("919134610"), stats=stats) == 0
+        assert stats["skipped_no_agency"] == 1
+        # agency known but route cannot be found -> skipped
+        r = MagicMock()
+        r.__iter__ = lambda self: iter([])
+        conn.execute.return_value = r
+        stats = {}
+        assert _process_trip_updates(conn, self._feed("BA:919134610"), stats=stats) == 0
+        assert stats["skipped_no_route"] == 1

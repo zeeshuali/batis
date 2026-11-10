@@ -59,8 +59,9 @@ _stop_event = threading.Event()
 async def lifespan(app: FastAPI):
     _stop_event.clear()
     try:
-        from app.core.run_log import prune_run_log
+        from app.core.run_log import prune_run_log, reap_interrupted_runs
         with get_engine().begin() as _c:
+            reap_interrupted_runs(_c, ["rt_ingestor", "traffic_loop", "baseline_predictor", "embed_pipeline"])
             prune_run_log(_c, get_settings().run_log_retention_days)
     except Exception:
         pass  # log tables may not exist yet (migration 012 not applied)

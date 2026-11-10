@@ -178,6 +178,16 @@ def five11_budget_remaining(conn, limit: int) -> int:
     return max(0, limit - int(used))
 
 
+def reap_interrupted_runs(conn, jobs: list[str]) -> int:
+    """Mark 'running' rows of the given jobs as failed. Call at API startup, before the job
+    threads start: anything still 'running' then belongs to a process that died."""
+    n = conn.execute(text("""
+        UPDATE job_runs SET status = 'error', finished_at = now(),
+               error = 'Interrupted: the process that was running this job stopped'
+        WHERE status = 'running' AND job = ANY(:j)"""), {"j": jobs}).rowcount
+    return int(n or 0)
+
+
 def prune_run_log(conn, days: int) -> None:
     conn.execute(text("DELETE FROM api_call_log WHERE called_at < now() - make_interval(days => :d)"), {"d": days})
     conn.execute(text("DELETE FROM job_runs WHERE started_at < now() - make_interval(days => :d)"), {"d": days})

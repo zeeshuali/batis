@@ -192,3 +192,14 @@ async def test_activity_endpoints(client: AsyncClient):
     r = await client.get("/admin/activities/ollama")
     assert r.status_code == 200 and "service" in r.json()["sections"]
     assert (await client.get("/admin/activities/nope")).status_code == 404
+
+
+def test_reaper_marks_only_listed_running_jobs(test_engine: Engine):
+    from app.core.run_log import reap_interrupted_runs
+    with test_engine.begin() as conn:
+        conn.execute(text("INSERT INTO job_runs (job, status) VALUES ('rt_ingestor','running'), ('stop_observations_load','running'), ('rt_ingestor','ok')"))
+    with test_engine.begin() as conn:
+        assert reap_interrupted_runs(conn, ["rt_ingestor"]) == 1
+    with test_engine.connect() as conn:
+        got = {(r.job, r.status) for r in conn.execute(text("SELECT job, status FROM job_runs"))}
+    assert ("rt_ingestor", "error") in got and ("stop_observations_load", "running") in got and ("rt_ingestor", "ok") in got

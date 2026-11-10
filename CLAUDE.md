@@ -88,7 +88,7 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-Current test count: **230 backend** tests (39 at Phase 0 close) and **115 frontend** (vitest) passing.
+Current test count: **233 backend** tests (39 at Phase 0 close) and **115 frontend** (vitest) passing.
 
 If a Phase 0 regression appears, the matching test in `backend/tests/`
 will catch it before merge — schema lint and import smoke tests cover
@@ -118,7 +118,7 @@ frontend test substrate that StopDrawer currently lacks.
 
 Tab **Backend** (URL `http://localhost:5173/#status`, `frontend/src/sections/Status.tsx`; the API root `/` also points to it): one **card per backend activity** grouped by category (Ingestion, Processing, External APIs, Infrastructure). Click a card for a side panel with tabs (Overview, Progress, Runs, API calls, Data, Errors, Config, Logs, plus Live queries for the database and Service for Ollama). Running jobs show a live progress bar (the stop_observations backfill shows phase, MB or rows and months loaded).
 Backend: `app/services/activities.py` holds the **CATALOG** of activities (add a new activity there) and builds `GET /admin/activities` and `GET /admin/activities/{key}`; `GET /admin/status` (checks), `/admin/api-calls` and `/admin/job-runs` remain. All need `X-API-Key` when `BACKEND_API_KEY` is set.
-Data: migration 012 tables `api_call_log` (host + path only, never the query string or key) and `job_runs`. Instrument with `app/core/run_log.py`: `tracked_get(url, **kw)` replaces `requests.get` for every outbound HTTP call; `with job_run("name") as jr:` wraps a run (`jr.set(rows=..)`, `jr.fail(msg)` for soft failures, `jr.progress(phase=..)` or `report_progress(...)` for live progress). Tracked jobs: `rt_ingestor`, `baseline_predictor`, `embed_pipeline`, `stop_observations_load`, `etl_run_data_jobs` (per-step progress), `traffic_loop`, `transfer_reliability_compute`. New loaders must use `tracked_get`, new loops and workers must use `job_run`, and each new activity needs a CATALOG entry. Thresholds live in `config.py` (`five11_rate_limit_per_hour`, `status_rt_stale_minutes`, `status_job_stale_minutes`, `run_log_retention_days`); the log is pruned at API startup.
+Data: migration 012 tables `api_call_log` (host + path only, never the query string or key) and `job_runs`. Instrument with `app/core/run_log.py`: `tracked_get(url, **kw)` replaces `requests.get` for every outbound HTTP call; `with job_run("name") as jr:` wraps a run (`jr.set(rows=..)`, `jr.fail(msg)` for soft failures, `jr.progress(phase=..)` or `report_progress(...)` for live progress). Tracked jobs: `rt_ingestor`, `baseline_predictor`, `embed_pipeline`, `stop_observations_load`, `etl_run_data_jobs` (per-step progress), `traffic_loop`, `transfer_reliability_compute`. The API reaps its own interrupted `running` job rows at startup. New loaders must use `tracked_get`, new loops and workers must use `job_run`, and each new activity needs a CATALOG entry. Thresholds live in `config.py` (`five11_rate_limit_per_hour`, `status_rt_stale_minutes`, `status_job_stale_minutes`, `run_log_retention_days`); the log is pruned at API startup.
 
 ---
 
