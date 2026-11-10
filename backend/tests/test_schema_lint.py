@@ -124,10 +124,9 @@ def test_gtfs_pks_are_composite(db_conn, table, expected_cols):
 
 
 def test_gtfs_stops_has_composite_unique_index(db_conn):
-    """gtfs_stops keeps single-column PK (stop_safety_scores / stop_features
-    FK to it), but migration 009 adds a composite UNIQUE index so the loader's
-    ON CONFLICT (agency_id, stop_id) clause has a target and future
-    cross-agency stop_id collisions error loudly."""
+    """Migration 009/010: (agency_id, stop_id) is the natural-key UNIQUE index
+    the loader's ON CONFLICT clause targets. The PK itself is the surrogate
+    stop_pk (see test_gtfs_stops_pk_is_surrogate)."""
     indexdef = db_conn.execute(text(
         "SELECT indexdef FROM pg_indexes WHERE indexname = 'gtfs_stops_agency_stop_uniq'"
     )).scalar()
@@ -150,3 +149,25 @@ def test_gtfs_shapes_has_agency_id_column(db_conn):
     """)).first()
     assert row is not None, "gtfs_shapes.agency_id column missing — migration 009 not applied."
     assert row[0] == "NO", f"gtfs_shapes.agency_id must be NOT NULL, got is_nullable={row[0]}"
+
+
+def test_gtfs_stops_pk_is_surrogate(db_conn):
+    """Migration 010: gtfs_stops PK must be stop_pk so agencies can share stop_ids."""
+    cols = [r[0] for r in db_conn.execute(text("""
+        SELECT a.attname FROM pg_index i
+        JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+        WHERE i.indrelid = 'gtfs_stops'::regclass AND i.indisprimary
+    """)).all()]
+    assert cols == ["stop_pk"], f"gtfs_stops PK = {cols}, expected ['stop_pk']"
+
+
+def test_stop_referencing_tables_have_stop_pk(db_conn):
+    """Every table that stores a stop reference carries the surrogate key."""
+    tables = ["gtfs_stop_times", "ops_trip_events", "stop_observations",
+              "stop_ada_gap", "stop_features", "stop_safety_scores",
+              "delay_predictions", "crowding_predictions", "demand_forecasts",
+              "trip_stop_snapshots"]
+    missing = [t for t in tables if not db_conn.execute(text(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = :t AND column_name = 'stop_pk'"), {"t": t}).scalar()]
+    assert not missing, f"stop_pk missing on: {missing}"

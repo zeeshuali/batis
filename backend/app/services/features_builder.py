@@ -39,6 +39,7 @@ def rebuild_trip_stop_snapshots(
                   route_id,
                   trip_id,
                   stop_id,
+                  stop_pk,
                   stop_sequence,
                   scheduled_arrival,
                   actual_arrival,
@@ -55,6 +56,7 @@ def rebuild_trip_stop_snapshots(
                   e.route_id,
                   e.trip_id,
                   e.stop_id,
+                  e.stop_pk,
                   e.stop_sequence,
                   e.scheduled_arrival,
                   e.actual_arrival,
@@ -111,6 +113,7 @@ def rebuild_stop_features(
                 DELETE FROM stop_features WHERE features_version = :features_version;
 
                 INSERT INTO stop_features (
+                  stop_pk,
                   stop_id,
                   distance_to_cbd_m,
                   routes_serving,
@@ -120,6 +123,7 @@ def rebuild_stop_features(
                   features_version
                 )
                 SELECT
+                  s.stop_pk,
                   s.stop_id,
                   CASE
                     WHEN s.geom IS NOT NULL THEN
@@ -145,12 +149,11 @@ def rebuild_stop_features(
                   :features_version AS features_version
                 FROM gtfs_stops s
                 LEFT JOIN gtfs_stop_times st
-                  ON st.stop_id   = s.stop_id
-                 AND st.agency_id = s.agency_id
+                  ON st.stop_pk = s.stop_pk
                 LEFT JOIN gtfs_trips t
                   ON t.agency_id = st.agency_id
                  AND t.trip_id   = st.trip_id
-                GROUP BY s.stop_id, s.geom;
+                GROUP BY s.stop_pk, s.stop_id, s.geom;
                 """
             ),
             {"features_version": features_version},

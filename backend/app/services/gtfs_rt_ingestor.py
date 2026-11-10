@@ -300,10 +300,10 @@ def _process_trip_updates(conn: Connection, feed: gtfs_realtime_pb2.FeedMessage)
         text(
             """
             INSERT INTO ops_trip_events (
-              service_date, trip_id, route_id, stop_id, stop_sequence,
+              service_date, trip_id, route_id, stop_id, stop_pk, stop_sequence,
               scheduled_arrival, actual_arrival, delay_seconds, headway_seconds, occupancy_level
             ) VALUES (
-              :service_date, :trip_id, :route_id, :stop_id, :stop_sequence,
+              :service_date, :trip_id, :route_id, :stop_id, (SELECT stop_pk FROM gtfs_stops g WHERE g.agency_id = 'AC' AND g.stop_id = :stop_id), :stop_sequence,
               :scheduled_arrival, :actual_arrival, :delay_seconds, :headway_seconds, :occupancy_level
             )
             """

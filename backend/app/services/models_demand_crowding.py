@@ -39,6 +39,7 @@ def generate_demand_forecasts(
                   route_id,
                   trip_id,
                   stop_id,
+                  stop_pk,
                   service_date,
                   time_bucket,
                   forecast_boardings,
@@ -50,6 +51,7 @@ def generate_demand_forecasts(
                   e.route_id,
                   NULL::text AS trip_id,
                   e.stop_id,
+                  e.stop_pk,
                   e.service_date,
                   to_char(e.actual_arrival, 'YYYY-MM-DD HH24:00') AS time_bucket,
                   COUNT(*)::double precision AS forecast_boardings,
@@ -62,6 +64,7 @@ def generate_demand_forecasts(
                 GROUP BY
                   e.route_id,
                   e.stop_id,
+                  e.stop_pk,
                   e.service_date,
                   to_char(e.actual_arrival, 'YYYY-MM-DD HH24:00');
                 """
@@ -105,6 +108,7 @@ def generate_crowding_predictions_from_demand(
                   route_id text NOT NULL,
                   trip_id text,
                   stop_id text,
+                  stop_pk bigint,
                   service_date date NOT NULL,
                   time_bucket text NOT NULL,
                   crowding_level text,
@@ -126,6 +130,7 @@ def generate_crowding_predictions_from_demand(
                   route_id,
                   trip_id,
                   stop_id,
+                  stop_pk,
                   service_date,
                   time_bucket,
                   crowding_level,
@@ -135,6 +140,7 @@ def generate_crowding_predictions_from_demand(
                   route_id,
                   trip_id,
                   stop_id,
+                  stop_pk,
                   service_date,
                   time_bucket,
                   CASE

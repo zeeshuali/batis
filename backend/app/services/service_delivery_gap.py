@@ -72,7 +72,7 @@ def compute_service_delivery_gap_for_all_cells(
                                 so.observed_arrival - so.scheduled_arrival))) > :tol
                    ) AS missed
               FROM stop_observations so
-              JOIN stop_cell sc USING (stop_id)
+              JOIN stop_cell sc ON sc.stop_pk = so.stop_pk
              WHERE so.service_date >= :ws
                AND so.service_date <= :we
              GROUP BY sc.cell_id
@@ -178,7 +178,7 @@ def get_route_breakdown_for_cell(
                             so.observed_arrival - so.scheduled_arrival))) > :tol
                ) AS missed
           FROM stop_observations so
-          JOIN stop_cell sc USING (stop_id)
+          JOIN stop_cell sc ON sc.stop_pk = so.stop_pk
          WHERE sc.cell_id = :cid
            AND so.service_date >= :ws
            AND so.service_date <= :we

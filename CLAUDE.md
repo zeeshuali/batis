@@ -1,5 +1,5 @@
 # BATIS — Claude Project Memory
-_Last updated: 2026-05-09_
+_Last updated: 2026-11-10_
 
 This file is Claude's persistent memory for the BATIS project. Read this at the start of every session before touching any code.
 
@@ -86,7 +86,7 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-Current test count: **39 tests passing** (baseline at Phase 0 close).
+Current test count: **207 tests passing** (39 at Phase 0 close).
 
 If a Phase 0 regression appears, the matching test in `backend/tests/`
 will catch it before merge — schema lint and import smoke tests cover
@@ -98,12 +98,19 @@ frontend test substrate that StopDrawer currently lacks.
 
 ---
 
-## Local DB state (checked 2026-11-09)
+## Local DB state (updated 2026-11-10, after migration 010 + ETL re-run)
 
-- `docker-compose.yml` has two Postgres services: `postgres` (PostGIS 16, host port **5434**, persistent volume `batis_postgres_data`) and `postgres-test` (PostGIS 15, port **5433**, **tmpfs — wiped on stop**, db `bay_area_transit_intel_test`).
-- `backend/.env` `DATABASE_URL` points at **5433** / `bay_area_transit_intel` — that is the ephemeral test container, not the persistent one, and the credentials do not match `postgres` on 5434. Fix before running ETL.
-- The persistent DB on 5434 currently has only `toll_rates`, `traffic_events`, `work_zones` — **`schema.sql` + migrations 001–009 have not been applied and no GTFS / stop_observations data is loaded**. The "data milestone" commit (92558d1) ran against a DB that no longer exists locally. Coverage numbers (months, agencies) are unknown until the ETL is re-run.
-- Rebuild order: `docker compose up -d postgres` → apply `sql/schema.sql` + `sql/migrations/*` → `python -m app.workers.run_data_jobs` → `python -m app.workers.backfill_stop_observations 12` (multi-hour, 60 req/hr limit).
+- `docker-compose.yml`: `postgres` (PostGIS 16, host port **5434**, persistent volume `batis_postgres_data`, creds `postgres`/`batis_dev`, `shm_size: 1gb`) and `postgres-test` (PostGIS 15, port **5433**, **tmpfs — wiped on stop**, used only by pytest).
+- `backend/.env` `DATABASE_URL` points at the persistent DB on **5434**. Schema + migrations 001–010 are applied.
+- Loaded: 621 routes, **20,260 stops** (185 stop_ids are shared by >1 agency), 90k trips, 3.17M stop_times (29 of 30 monitored agencies; **CR = Santa Cruz METRO has no 511 GTFS feed** and is reported as skipped), 1,772 census tracts + ambulatory, 2,629 fare products, 2,350 coverage cells, fare_burden, service_delivery_gap (688), per-stop features/safety/ADA gap (20,260 each).
+- `stop_observations`: **52.4M rows, 2026-09 and 2026-10** (about 0.3% have no stop_pk because the stop is missing from the feed; agency EM is unmonitored). The 12-month backfill (`python -m app.workers.backfill_stop_observations 12`, multi-hour, 60 req/hr) has not been run. Don't run two ETLs at once: the month-already-loaded check is not atomic and doubled this table once (fixed by deleting the second batch).
+- **VIOLATION to remove (see rule 9, no synthetic data):** `ops_trip_events` (82,416 rows) was seeded from the static schedule with random delays for agency `3D` only, and `rt_vehicle_positions_raw` is empty. Delay/bunching/demand/crowding outputs derived from it are not real. Fix: remove the seed fallback, purge those rows and derived tables, and rebuild from the RT ingestor and `stop_observations`.
+- `transfer_reliability` is empty by design until it is reworked to match stops spatially.
+- **pgvector is not installed** in the `postgis/postgis:16` image, so `ai_embeddings` does not exist and the AI assistant's RAG is inactive.
+- Berkeley crime data fetch returns 403 (skipped); only Oakland incidents feed safety scores.
+- Backup taken before migration 010: `~/batis-backups/pre-010-*.dump` (all tables except stop_observations data).
+- Rebuild order: `docker compose up -d postgres` → apply `sql/schema.sql` → `python -m app.workers.run_data_jobs`. For a DB created before migration 010 apply `sql/migrations/010_stop_surrogate_key.sql`, then `ALTER TABLE gtfs_stop_times VALIDATE CONSTRAINT gtfs_stop_times_stop_pk_fkey;`.
+- Logs: worker entry points and the API call `app.core.redact.install_redaction()` so `api_key=`/`token=` values are scrubbed from stdout/stderr/logging (requests puts the full URL in HTTPError text).
 
 ## Data Flow Overview
 
@@ -202,8 +209,23 @@ VITE_API_KEY=...                   # X-API-Key for frontend requests
   of migration 009; joining on `<id>` alone compiles but silently
   cross-bleeds between agencies whenever a route_id/trip_id/shape_id
   label is shared (e.g. SF Muni and Santa Clara VTA both use route_id
-  "31"). `gtfs_stops` keeps a single-column `stop_id` PK + composite
-  unique index — `stop_safety_scores` and `stop_features` FK to it.
+  "31").
+- **Stops use a surrogate key (migration 010):** `gtfs_stops.stop_pk` is the
+  PK; `UNIQUE (agency_id, stop_id)` is the natural key and the loader's
+  upsert target. `stop_id` repeats across agencies, so **join on `stop_pk`,
+  never on `stop_id` alone**. Every table that references a stop carries
+  `stop_pk` (stop_times, ops_trip_events, stop_observations, stop_ada_gap,
+  stop_features, stop_safety_scores, delay/crowding/demand predictions,
+  trip_stop_snapshots); the text `stop_id` stays for display and 511 API
+  calls. Writers resolve it with
+  `(SELECT stop_pk FROM gtfs_stops WHERE agency_id = .. AND stop_id = ..)`.
+  HTTP stop endpoints accept optional `?agency_id=` to disambiguate.
+  `transfer_reliability` still matches the same stop_id label across agencies
+  (to be redone spatially). Plan:
+  `docs/superpowers/plans/2026-11-10-stop-surrogate-key.md`.
+- **Tests must not touch the dev DB:** `tests/conftest.py` pins
+  `DATABASE_URL` to the 5433 test DB. Don't put `;` inside `--` comments in
+  `schema.sql` (the test loader splits on semicolons).
 
 ---
 
@@ -217,3 +239,4 @@ VITE_API_KEY=...                   # X-API-Key for frontend requests
 6. **Never add hardcoded values** — all URLs, thresholds, model names go in config.py.
 7. **Add `sentence-transformers` and `httpx` to requirements.txt** if touching the AI pipeline.
 8. When adding new FastAPI routes, place more specific paths (e.g., `/routes/compare`) BEFORE parameterised ones (e.g., `/routes/{route_id}/geo`).
+9. **NEVER use synthetic data. Always use live data.** No seeded, random, mock or placeholder rows in the database, ETL, or UI. If live data is missing from the DB, read the logs of the step that should have filled it (ETL output, loader errors, API responses, `docker logs batis-postgres-1`), find the root cause, fix it, re-run, and verify row counts and sources. An honest empty/"no data" state beats fake numbers. Only `backend/tests/` fixtures in the throwaway test DB may use hand-made rows. (Known violation to remove: `app/services/seed_from_static.py`, called from `app/workers/run_data_jobs.py` when `ops_trip_events` is empty; it fills `ops_trip_events` with random delays for agency 3D.)

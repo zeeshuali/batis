@@ -45,7 +45,7 @@ def seeded(test_engine: Engine):
                   ST_SetSRID(ST_MakePoint(10.005, 10.005), 4326)),
                 ('ep-stop-Y', 'EPADA', 'Y', 0, 1,
                   ST_SetSRID(ST_MakePoint(10.006, 10.005), 4326))
-              ON CONFLICT (stop_id) DO UPDATE SET
+              ON CONFLICT (agency_id, stop_id) DO UPDATE SET
                 wheelchair_boarding = EXCLUDED.wheelchair_boarding,
                 geom                = EXCLUDED.geom
             """))

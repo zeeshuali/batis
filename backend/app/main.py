@@ -105,6 +105,10 @@ async def lifespan(app: FastAPI):
     t_traffic.join(timeout=5)
 
 
+from app.core.redact import install_redaction
+
+install_redaction()  # scrub API keys from any log/print output
+
 app = FastAPI(title="Bay Area Transit Intelligence API", lifespan=lifespan)
 
 app.add_middleware(
@@ -317,13 +321,15 @@ def accessibility_gaps_cells(
 )
 def accessibility_gaps_breakdown(
     stop_id: str,
+    agency_id: Optional[str] = None,
     conn: Connection = Depends(get_conn),
 ):
-    """Per-stop drill: routes serving + top-3 contributing tracts."""
+    """Per-stop drill: routes serving + top-3 contributing tracts.
+    stop_id repeats across agencies, so pass ?agency_id= to disambiguate."""
     from app.services.ada_accessibility_gap import (
         get_stop_ada_gap_breakdown,
     )
-    return get_stop_ada_gap_breakdown(conn, stop_id)
+    return get_stop_ada_gap_breakdown(conn, stop_id, agency_id)
 
 
 @app.get(
@@ -664,10 +670,11 @@ def demand_stops_geo(
 @app.get("/stops/{stop_id}", dependencies=[Depends(api_key_dependency)])
 def stop_detail(
     stop_id: str,
+    agency_id: Optional[str] = None,
     conn: Connection = Depends(get_conn),
 ):
     from fastapi import HTTPException
-    detail = get_stop_detail(conn, stop_id=stop_id)
+    detail = get_stop_detail(conn, stop_id=stop_id, agency_id=agency_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="Stop not found")
     return detail
@@ -752,14 +759,16 @@ def route_headways(
 @app.get("/stops/{stop_id}/realtime-departures", dependencies=[Depends(api_key_dependency)])
 def realtime_departures(
     stop_id: str,
+    agency_id: Optional[str] = None,
     conn: Connection = Depends(get_conn),
 ):
-    return get_realtime_departures(conn, stop_id=stop_id)
+    return get_realtime_departures(conn, stop_id=stop_id, agency_id=agency_id)
 
 
 @app.get("/stops/{stop_id}/live-departures", dependencies=[Depends(api_key_dependency)])
 def live_departures(
     stop_id: str,
+    agency_id: Optional[str] = None,
     conn: Connection = Depends(get_conn),
 ):
     """
@@ -770,12 +779,15 @@ def live_departures(
     from app.services.five11_stop_monitoring import get_live_departures as _siri
 
     stop_row = conn.execute(
-        text("SELECT stop_code, agency_id FROM gtfs_stops WHERE stop_id = :sid"),
-        {"sid": stop_id},
+        text("SELECT stop_code, agency_id FROM gtfs_stops "
+             "WHERE stop_id = :sid "
+             "  AND (CAST(:aid AS text) IS NULL OR agency_id = :aid) "
+             "ORDER BY agency_id LIMIT 1"),
+        {"sid": stop_id, "aid": agency_id},
     ).mappings().first()
 
     stop_code = stop_row["stop_code"] if stop_row else None
-    agency_id = (stop_row["agency_id"] if stop_row else None) or "AC"
+    agency_id = (stop_row["agency_id"] if stop_row else None) or agency_id or "AC"
 
     if stop_code:
         try:
@@ -786,7 +798,7 @@ def live_departures(
             pass
 
     # Fallback: normalize DB realtime-departures to the same response shape
-    rows = get_realtime_departures(conn, stop_id=stop_id)
+    rows = get_realtime_departures(conn, stop_id=stop_id, agency_id=agency_id)
     return [
         {
             "route_id": r["route_id"],
@@ -805,9 +817,10 @@ def live_departures(
 def stop_reachability(
     stop_id: str,
     minutes: int = Query(default=30, ge=10, le=90),
+    agency_id: Optional[str] = None,
     conn: Connection = Depends(get_conn),
 ):
-    return get_stop_reachability(conn, stop_id=stop_id, minutes=minutes)
+    return get_stop_reachability(conn, stop_id=stop_id, minutes=minutes, agency_id=agency_id)
 
 
 @app.get("/trip-planner", dependencies=[Depends(api_key_dependency)])

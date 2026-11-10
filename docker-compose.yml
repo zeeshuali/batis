@@ -8,6 +8,10 @@ services:
     # Host-side 5434 to avoid colliding with other postgres containers on 5432
     ports:
       - "5434:5432"
+    # Docker's default 64MB /dev/shm is too small for parallel query / parallel
+    # VACUUM on the 26M+ row stop_observations table: workers fail with "could
+    # not resize shared memory segment" and a crash forced recovery once.
+    shm_size: 1gb
     volumes:
       - postgres_data:/var/lib/postgresql/data
     # Schema is applied manually via the bootstrap script (see Makefile / README)

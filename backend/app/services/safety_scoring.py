@@ -34,6 +34,7 @@ def compute_stop_safety_scores(
             """
             WITH incident_stats AS (
               SELECT
+                s.stop_pk,
                 s.stop_id,
                 COUNT(*) FILTER (WHERE i.incident_type = 'crime') AS crime_incidents_nearby,
                 COUNT(*) FILTER (WHERE i.incident_type = 'collision') AS collisions_nearby,
@@ -53,10 +54,11 @@ def compute_stop_safety_scores(
                -- alone bypasses the GIST index on geom and scans 17k × 30k rows.
                AND ST_DWithin(s.geom, i.geom, :buffer_degrees)
                AND ST_DWithin(s.geom::geography, i.geom::geography, :buffer_meters)
-              GROUP BY s.stop_id
+              GROUP BY s.stop_pk, s.stop_id
             ),
             scored AS (
               SELECT
+                stop_pk,
                 stop_id,
                 crime_incidents_nearby,
                 collisions_nearby,
@@ -71,6 +73,7 @@ def compute_stop_safety_scores(
               FROM incident_stats
             )
             INSERT INTO stop_safety_scores AS dst (
+              stop_pk,
               stop_id,
               safety_score,
               crime_incidents_nearby,
@@ -80,6 +83,7 @@ def compute_stop_safety_scores(
               last_computed_at
             )
             SELECT
+              stop_pk,
               stop_id,
               safety_score,
               crime_incidents_nearby,
@@ -88,7 +92,7 @@ def compute_stop_safety_scores(
               pedestrian_infra_score,
               now() AS last_computed_at
             FROM scored
-            ON CONFLICT (stop_id) DO UPDATE
+            ON CONFLICT (stop_pk) DO UPDATE
             SET
               safety_score = EXCLUDED.safety_score,
               crime_incidents_nearby = EXCLUDED.crime_incidents_nearby,

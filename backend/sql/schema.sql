@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS gtfs_routes (
 );
 
 CREATE TABLE IF NOT EXISTS gtfs_stops (
-  stop_id text PRIMARY KEY,
+  stop_pk bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  stop_id text NOT NULL,
   agency_id text NOT NULL DEFAULT 'AC',
   stop_code text,
   stop_name text,
@@ -47,8 +48,8 @@ CREATE TABLE IF NOT EXISTS gtfs_stops (
 
 -- Composite unique on (agency_id, stop_id) is the target of the loader's
 -- ON CONFLICT clause and guards against future cross-agency stop_id
--- collisions. Single-column PK on stop_id stays because stop_safety_scores
--- and stop_features FK to it.
+-- collisions. The PK is the surrogate stop_pk (migration 010), and dependent
+-- tables FK to stop_pk, so agencies may reuse agency-assigned stop_ids.
 CREATE UNIQUE INDEX IF NOT EXISTS gtfs_stops_agency_stop_uniq
   ON gtfs_stops (agency_id, stop_id);
 
@@ -75,7 +76,8 @@ CREATE TABLE IF NOT EXISTS gtfs_stop_times (
   agency_id text NOT NULL DEFAULT 'AC',
   arrival_time text,
   departure_time text,
-  stop_id text NOT NULL REFERENCES gtfs_stops(stop_id),
+  stop_id text NOT NULL,
+  stop_pk bigint REFERENCES gtfs_stops(stop_pk),
   stop_sequence integer NOT NULL,
   pickup_type integer,
   drop_off_type integer,
@@ -86,6 +88,8 @@ CREATE TABLE IF NOT EXISTS gtfs_stop_times (
 
 CREATE INDEX IF NOT EXISTS idx_gtfs_stop_times_stop_id
   ON gtfs_stop_times (stop_id);
+CREATE INDEX IF NOT EXISTS idx_gtfs_stop_times_stop_pk
+  ON gtfs_stop_times (stop_pk);
 
 CREATE TABLE IF NOT EXISTS gtfs_shapes (
   shape_id text NOT NULL,
@@ -142,6 +146,7 @@ CREATE TABLE IF NOT EXISTS ops_trip_events (
   trip_id text NOT NULL,
   route_id text NOT NULL,
   stop_id text,
+  stop_pk bigint,
   stop_sequence integer,
   scheduled_arrival timestamptz,
   actual_arrival timestamptz,
@@ -227,7 +232,8 @@ CREATE INDEX IF NOT EXISTS idx_safety_incidents_geom
   USING GIST (geom);
 
 CREATE TABLE IF NOT EXISTS stop_safety_scores (
-  stop_id text PRIMARY KEY REFERENCES gtfs_stops(stop_id),
+  stop_pk bigint PRIMARY KEY REFERENCES gtfs_stops(stop_pk) ON DELETE CASCADE,
+  stop_id text NOT NULL,
   safety_score double precision,
   crime_incidents_nearby integer,
   collisions_nearby integer,
@@ -242,6 +248,7 @@ CREATE TABLE IF NOT EXISTS delay_predictions (
   route_id text NOT NULL,
   trip_id text,
   stop_id text,
+  stop_pk bigint,
   prediction_timestamp timestamptz NOT NULL,
   predicted_delay_seconds double precision,
   model_version text,
@@ -271,6 +278,7 @@ CREATE TABLE IF NOT EXISTS demand_forecasts (
   route_id text NOT NULL,
   trip_id text,
   stop_id text,
+  stop_pk bigint,
   service_date date NOT NULL,
   time_bucket text NOT NULL,
   forecast_boardings double precision,
@@ -288,6 +296,7 @@ CREATE TABLE IF NOT EXISTS crowding_predictions (
   route_id text NOT NULL,
   trip_id text,
   stop_id text,
+  stop_pk bigint,
   service_date date NOT NULL,
   time_bucket text NOT NULL,
   crowding_level text,
@@ -306,6 +315,7 @@ CREATE TABLE IF NOT EXISTS trip_stop_snapshots (
   route_id text NOT NULL,
   trip_id text NOT NULL,
   stop_id text,
+  stop_pk bigint,
   stop_sequence integer,
   scheduled_arrival timestamptz,
   actual_arrival timestamptz,
@@ -323,7 +333,8 @@ CREATE INDEX IF NOT EXISTS idx_trip_stop_snapshots_route_date
   ON trip_stop_snapshots (route_id, service_date);
 
 CREATE TABLE IF NOT EXISTS stop_features (
-  stop_id text PRIMARY KEY REFERENCES gtfs_stops(stop_id),
+  stop_pk bigint PRIMARY KEY REFERENCES gtfs_stops(stop_pk) ON DELETE CASCADE,
+  stop_id text NOT NULL,
   distance_to_cbd_m double precision,
   routes_serving integer,
   avg_headway_peak double precision,
@@ -366,6 +377,7 @@ CREATE TABLE IF NOT EXISTS stop_observations (
     trip_id           text NOT NULL,
     route_id          text,
     stop_id           text NOT NULL,
+    stop_pk           bigint,
     scheduled_arrival timestamptz,
     observed_arrival  timestamptz,
     delay_seconds     integer GENERATED ALWAYS AS (
@@ -626,13 +638,13 @@ CREATE INDEX IF NOT EXISTS ix_stop_observations_route_date
   ON stop_observations (route_id, service_date);
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS stop_cell AS
-  SELECT s.stop_id, c.cell_id
+  SELECT s.stop_pk, s.agency_id, s.stop_id, c.cell_id
   FROM gtfs_stops s
   JOIN coverage_cells c
     ON ST_Contains(c.geom, s.geom);
 
 CREATE INDEX IF NOT EXISTS ix_stop_cell_cell ON stop_cell (cell_id);
-CREATE INDEX IF NOT EXISTS ix_stop_cell_stop ON stop_cell (stop_id);
+CREATE INDEX IF NOT EXISTS ix_stop_cell_stop ON stop_cell (stop_pk);
 
 -- ── Sprint 5c — ADA Accessibility Gap Tracker ──────────────────────────
 -- Mirror of migrations/008_ada_accessibility_gap.sql so fresh installs
@@ -681,7 +693,8 @@ CREATE TABLE IF NOT EXISTS census_ambulatory (
 );
 
 CREATE TABLE IF NOT EXISTS stop_ada_gap (
-  stop_id              text PRIMARY KEY,
+  stop_pk              bigint PRIMARY KEY REFERENCES gtfs_stops(stop_pk) ON DELETE CASCADE,
+  stop_id              text NOT NULL,
   agency_id            text,
   supply_penalty       numeric(3,2),
   ambulatory_pop_400m  integer,
@@ -698,7 +711,7 @@ CREATE INDEX IF NOT EXISTS ix_stop_ada_gap_score
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS cell_ada_gap AS
   SELECT cc.cell_id,
-         COUNT(sag.stop_id)                                AS stop_count,
+         COUNT(sag.stop_pk)                                AS stop_count,
          MAX(sag.gap_score)                                AS max_gap_score,
          AVG(sag.gap_score)                                AS mean_gap_score,
          (ARRAY_AGG(sag.gap_tier ORDER BY
@@ -711,7 +724,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS cell_ada_gap AS
             END DESC NULLS LAST))[1]                       AS worst_tier
     FROM coverage_cells cc
     LEFT JOIN stop_cell    sc  ON sc.cell_id  = cc.cell_id
-    LEFT JOIN stop_ada_gap sag ON sag.stop_id = sc.stop_id
+    LEFT JOIN stop_ada_gap sag ON sag.stop_pk = sc.stop_pk
    GROUP BY cc.cell_id;
 CREATE INDEX IF NOT EXISTS ix_cell_ada_gap_score
   ON cell_ada_gap (max_gap_score DESC NULLS LAST);

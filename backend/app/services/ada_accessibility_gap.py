@@ -95,7 +95,7 @@ def compute_stop_ada_gap_for_all_stops(
                      `catchment_radius_m` meters around each stop
       combined     — supply × demand → gap_score
       percentiles  — PERCENTILE_CONT over non-zero gap_scores
-      INSERT … ON CONFLICT (stop_id) DO UPDATE  with banded gap_tier.
+      INSERT … ON CONFLICT (stop_pk) DO UPDATE  with banded gap_tier.
 
     Returns rowcount.
     """
@@ -105,7 +105,8 @@ def compute_stop_ada_gap_for_all_stops(
 
     result = conn.execute(text("""
         WITH supply AS (
-          SELECT s.stop_id,
+          SELECT s.stop_pk,
+                 s.stop_id,
                  s.agency_id,
                  s.location_type,
                  s.wheelchair_boarding,
@@ -131,7 +132,7 @@ def compute_stop_ada_gap_for_all_stops(
            WHERE s.geom IS NOT NULL
         ),
         demand AS (
-          SELECT s.stop_id,
+          SELECT s.stop_pk,
                  COALESCE(SUM(
                    ca.ambulatory_pop
                    * ST_Area(ST_Intersection(buf.geom, t.geom))
@@ -144,10 +145,10 @@ def compute_stop_ada_gap_for_all_stops(
             LEFT JOIN census_tracts     t  ON ST_Intersects(buf.geom, t.geom)
             LEFT JOIN census_ambulatory ca USING (tract_geoid)
            WHERE s.geom IS NOT NULL
-           GROUP BY s.stop_id
+           GROUP BY s.stop_pk
         ),
         combined AS (
-          SELECT supply.stop_id, supply.agency_id,
+          SELECT supply.stop_pk, supply.stop_id, supply.agency_id,
                  CASE
                    WHEN supply.location_type IN (1, 2)
                     AND supply.has_pathways_data
@@ -162,7 +163,7 @@ def compute_stop_ada_gap_for_all_stops(
                     AND NOT supply.has_accessible_pathway) AS pathways_override,
                  demand.ambulatory_pop_400m
             FROM supply
-            JOIN demand USING (stop_id)
+            JOIN demand USING (stop_pk)
         ),
         scored AS (
           SELECT *,
@@ -178,11 +179,11 @@ def compute_stop_ada_gap_for_all_stops(
            WHERE gap_score > 0
         )
         INSERT INTO stop_ada_gap (
-          stop_id, agency_id, supply_penalty, ambulatory_pop_400m,
+          stop_pk, stop_id, agency_id, supply_penalty, ambulatory_pop_400m,
           gap_score, gap_tier, pathways_override,
           catchment_radius_m, computed_at
         )
-        SELECT scored.stop_id, scored.agency_id,
+        SELECT scored.stop_pk, scored.stop_id, scored.agency_id,
                scored.supply_penalty, scored.ambulatory_pop_400m,
                scored.gap_score,
                CASE
@@ -199,7 +200,7 @@ def compute_stop_ada_gap_for_all_stops(
                :r,
                now()
           FROM scored, percentiles
-        ON CONFLICT (stop_id) DO UPDATE
+        ON CONFLICT (stop_pk) DO UPDATE
           SET agency_id            = EXCLUDED.agency_id,
               supply_penalty       = EXCLUDED.supply_penalty,
               ambulatory_pop_400m  = EXCLUDED.ambulatory_pop_400m,
@@ -273,17 +274,24 @@ def get_cell_ada_gap_features(
 def get_stop_ada_gap_breakdown(
     conn: Connection,
     stop_id: str,
+    agency_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """Per-stop drill: stop metadata + routes serving + top-3
-    contributing tracts by area-weighted ambulatory pop."""
+    contributing tracts by area-weighted ambulatory pop.
+
+    stop_id is agency-assigned and may repeat across agencies; pass
+    agency_id to disambiguate (otherwise the lowest agency_id wins)."""
     meta_row = conn.execute(text("""
-        SELECT sag.stop_id, sag.agency_id, s.stop_name,
+        SELECT sag.stop_pk, sag.stop_id, sag.agency_id, s.stop_name,
                sag.gap_score, sag.gap_tier, sag.supply_penalty,
                sag.pathways_override, sag.catchment_radius_m
           FROM stop_ada_gap sag
-          JOIN gtfs_stops    s ON s.stop_id = sag.stop_id
+          JOIN gtfs_stops    s ON s.stop_pk = sag.stop_pk
          WHERE sag.stop_id = :sid
-    """), {"sid": stop_id}).mappings().fetchone()
+           AND (CAST(:aid AS text) IS NULL OR sag.agency_id = :aid)
+         ORDER BY sag.agency_id
+         LIMIT 1
+    """), {"sid": stop_id, "aid": agency_id}).mappings().fetchone()
 
     if not meta_row:
         return {"stop_id": stop_id, "routes": [], "tracts": []}
@@ -304,17 +312,16 @@ def get_stop_ada_gap_breakdown(
                                  AND tr.trip_id   = st.trip_id
           LEFT JOIN gtfs_routes r  ON r.agency_id = tr.agency_id
                                  AND r.route_id   = tr.route_id
-         WHERE st.stop_id   = :sid
-           AND st.agency_id = :aid
+         WHERE st.stop_pk   = :pk
          GROUP BY tr.route_id, r.route_short_name
          ORDER BY trips_per_day DESC
          LIMIT 10
-    """), {"sid": stop_id, "aid": meta_row["agency_id"]}).mappings().all()
+    """), {"pk": meta_row["stop_pk"]}).mappings().all()
 
     radius = meta_row["catchment_radius_m"] or 400
     tracts = conn.execute(text("""
         WITH stop_geom AS (
-          SELECT geom FROM gtfs_stops WHERE stop_id = :sid
+          SELECT geom FROM gtfs_stops WHERE stop_pk = :pk
         ),
         buf AS (
           SELECT ST_Buffer((SELECT geom FROM stop_geom)::geography, :r)::geometry AS geom
@@ -336,7 +343,7 @@ def get_stop_ada_gap_breakdown(
           FROM contributions
          ORDER BY (ambulatory_pop * overlap_area / NULLIF(tract_area, 0)) DESC
          LIMIT 3
-    """), {"sid": stop_id, "r": radius}).mappings().all()
+    """), {"pk": meta_row["stop_pk"], "r": radius}).mappings().all()
 
     return {
         "stop_id":           meta_row["stop_id"],
@@ -392,13 +399,12 @@ def get_stop_ada_gap_features(
                                            AND tr.trip_id   = st.trip_id
                     LEFT JOIN gtfs_routes r  ON r.agency_id = tr.agency_id
                                            AND r.route_id   = tr.route_id
-                   WHERE st.stop_id   = sag.stop_id
-                     AND st.agency_id = sag.agency_id), ARRAY[]::text[]
+                   WHERE st.stop_pk = sag.stop_pk), ARRAY[]::text[]
                ) AS routes_serving
           FROM stop_ada_gap sag
-          JOIN gtfs_stops    s ON s.stop_id = sag.stop_id
+          JOIN gtfs_stops    s ON s.stop_pk = sag.stop_pk
          WHERE (:tier IS NULL OR sag.gap_tier = :tier)
-         ORDER BY sag.gap_score DESC NULLS LAST, sag.stop_id
+         ORDER BY sag.gap_score DESC NULLS LAST, sag.stop_pk
          LIMIT :lim
     """), {"tier": tier, "lim": limit}).mappings().all()
 

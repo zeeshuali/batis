@@ -185,7 +185,13 @@ def get_transfer_reliability(
             tr.n_observations,
             tr.computed_at
         FROM transfer_reliability tr
-        LEFT JOIN gtfs_stops s ON s.stop_id = tr.transfer_stop_id
+        LEFT JOIN LATERAL (
+            SELECT stop_name FROM gtfs_stops g
+             WHERE g.stop_id = tr.transfer_stop_id
+             ORDER BY (g.agency_id = tr.from_agency) DESC,
+                      (g.agency_id = tr.to_agency) DESC, g.agency_id
+             LIMIT 1
+        ) s ON TRUE
         WHERE {where}
         ORDER BY tr.n_observations DESC, tr.success_rate_pct ASC
         LIMIT :limit

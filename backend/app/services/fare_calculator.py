@@ -93,8 +93,8 @@ def _resolve_leg(conn: Connection, leg: Leg) -> LegResult:
     # translate each stop_id to its zone_id via `gtfs_stops` first.
     # Falls back to the stop_id itself when no zone is recorded (which
     # is how some agencies' rules are written).
-    origin_keys      = _zone_candidates_for_stop(conn, leg.origin_stop_id)
-    destination_keys = _zone_candidates_for_stop(conn, leg.destination_stop_id)
+    origin_keys      = _zone_candidates_for_stop(conn, leg.origin_stop_id, leg.agency_id)
+    destination_keys = _zone_candidates_for_stop(conn, leg.destination_stop_id, leg.agency_id)
 
     # Step 1: route_and_od
     if leg.route_id and origin_keys and destination_keys:
@@ -162,7 +162,9 @@ def _resolve_leg(conn: Connection, leg: Leg) -> LegResult:
     )
 
 
-def _zone_candidates_for_stop(conn: Connection, stop_id: Optional[str]) -> List[str]:
+def _zone_candidates_for_stop(
+    conn: Connection, stop_id: Optional[str], agency_id: Optional[str] = None
+) -> List[str]:
     """Resolve a stop_id to the set of keys we'd try in `from_area_id` /
     `to_area_id`.  In practice this is `[zone_id, stop_id]` — try the
     farezone first (BART's shape), fall back to the stop_id (some
@@ -171,8 +173,12 @@ def _zone_candidates_for_stop(conn: Connection, stop_id: Optional[str]) -> List[
     if not stop_id:
         return []
     row = conn.execute(text("""
-        SELECT zone_id FROM gtfs_stops WHERE stop_id = :stop_id
-    """), {"stop_id": stop_id}).first()
+        SELECT zone_id FROM gtfs_stops
+         WHERE stop_id = :stop_id
+           AND (CAST(:agency_id AS text) IS NULL OR agency_id = :agency_id)
+         ORDER BY agency_id
+         LIMIT 1
+    """), {"stop_id": stop_id, "agency_id": agency_id}).first()
     zone_id = row[0] if row else None
     candidates = []
     if zone_id:

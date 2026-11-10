@@ -356,7 +356,19 @@ def load_month(year_month: str, conn: Connection) -> int:
                         year_month, chunk_num, total_inserted,
                     )
 
-    log.info("[stop-obs] %s — loaded %d rows total", year_month, total_inserted)
+    # Resolve the surrogate stop key (migration 010) for the month just loaded.
+    resolved = conn.execute(
+        text(
+            "UPDATE stop_observations so SET stop_pk = g.stop_pk "
+            "FROM gtfs_stops g "
+            "WHERE so.stop_pk IS NULL "
+            "  AND so.service_date >= :first AND so.service_date <= :last "
+            "  AND g.agency_id = so.agency_id AND g.stop_id = so.stop_id"
+        ),
+        {"first": first_day, "last": last_day},
+    ).rowcount
+    log.info("[stop-obs] %s — loaded %d rows, resolved stop_pk for %d",
+             year_month, total_inserted, resolved)
     return total_inserted
 
 

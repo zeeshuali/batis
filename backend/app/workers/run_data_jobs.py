@@ -47,6 +47,8 @@ def _parse_date(s: str | None) -> date | None:
 
 
 def main() -> None:
+    from app.core.redact import install_redaction
+    install_redaction()
     today = date.today()
     start_s = os.environ.get("DATA_START_DATE")
     end_s = os.environ.get("DATA_END_DATE")

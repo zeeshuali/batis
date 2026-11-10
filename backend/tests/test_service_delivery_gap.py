@@ -71,7 +71,7 @@ def gap_fixture_cells(db_conn):
             db_conn.execute(text(
                 "INSERT INTO gtfs_stops (stop_id, agency_id, stop_name, geom) "
                 "VALUES (:sid, 'TEST', 'Test stop', "
-                "ST_GeomFromText(:pt, 4326)) ON CONFLICT (stop_id) DO NOTHING"
+                "ST_GeomFromText(:pt, 4326)) ON CONFLICT (agency_id, stop_id) DO NOTHING"
             ), {"sid": f"stop-{cid}", "pt": pt_wkt})
 
         # Refresh the materialized view so stop_cell picks up our test data
@@ -85,9 +85,11 @@ def gap_fixture_cells(db_conn):
                 observed = None if i < missed else sched + timedelta(seconds=30)
                 db_conn.execute(text(
                     "INSERT INTO stop_observations "
-                    "(service_date, agency_id, trip_id, route_id, stop_id, "
+                    "(service_date, agency_id, trip_id, route_id, stop_id, stop_pk, "
                     " scheduled_arrival, observed_arrival) "
-                    "VALUES (:d, 'TEST', :t, 'R1', :s, :sa, :oa)"
+                    "VALUES (:d, 'TEST', :t, 'R1', :s, "
+                    "(SELECT stop_pk FROM gtfs_stops g WHERE g.agency_id = 'TEST' AND g.stop_id = :s), "
+                    ":sa, :oa)"
                 ), {"d": today - timedelta(days=10),
                     "t": f"trip-{cid}-{i}", "s": sid,
                     "sa": sched, "oa": observed})
@@ -210,9 +212,11 @@ def test_route_breakdown_returns_top_n_sorted(db_conn, gap_fixture_cells):
                 observed = None if i < missed else sched_base + timedelta(minutes=i, seconds=30)
                 db_conn.execute(text(
                     "INSERT INTO stop_observations "
-                    "(service_date, agency_id, trip_id, route_id, stop_id, "
+                    "(service_date, agency_id, trip_id, route_id, stop_id, stop_pk, "
                     " scheduled_arrival, observed_arrival) "
-                    "VALUES (:d, 'TEST', :t, :r, 'stop-test-A', :sa, :oa)"
+                    "VALUES (:d, 'TEST', :t, :r, 'stop-test-A', "
+                    "(SELECT stop_pk FROM gtfs_stops g WHERE g.agency_id = 'TEST' AND g.stop_id = 'stop-test-A'), "
+                    ":sa, :oa)"
                 ), {"d": today - timedelta(days=10),
                     "t": trip, "r": route,
                     "sa": sched_base + timedelta(minutes=i),

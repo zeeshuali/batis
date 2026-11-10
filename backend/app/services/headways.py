@@ -59,6 +59,7 @@ def compute_headways(
                   WINDOW w AS (
                     PARTITION BY
                       e.service_date,
+                      e.agency_id,
                       e.route_id,
                       COALESCE(t.direction_id, 0),
                       e.stop_id

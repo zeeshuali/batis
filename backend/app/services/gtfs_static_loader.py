@@ -16,6 +16,9 @@ from app.core.config import get_settings
 from app.db import get_engine
 
 
+from app.core.redact import redact_secrets as _redact_secrets  # noqa: E402
+
+
 # Shapes are optional: some agencies (ferries, rail) may not include shapes.txt
 GTFS_REQUIRED_FILES = ["routes.txt", "stops.txt", "trips.txt", "stop_times.txt"]
 
@@ -257,8 +260,8 @@ def load_agency_gtfs(agency_id: str) -> None:
                           ["agency_id", "route_id"])
 
         # Stops: upsert core columns, then set geometry in a single SQL statement.
-        # gtfs_stops keeps a single-column PK; ON CONFLICT targets the composite
-        # unique index gtfs_stops_agency_stop_uniq added by migration 009.
+        # gtfs_stops PK is the surrogate stop_pk (migration 010); ON CONFLICT
+        # targets the natural key gtfs_stops_agency_stop_uniq (agency_id, stop_id).
         _upsert_dataframe(conn, stops_df[stops_core_cols], "gtfs_stops",
                           ["agency_id", "stop_id"])
         conn.execute(
@@ -269,6 +272,24 @@ def load_agency_gtfs(agency_id: str) -> None:
             ),
             {"agency_id": agency_id},
         )
+
+        # Resolve the surrogate key for this agency's stops (migration 010) so
+        # stop_times reference gtfs_stops(stop_pk) and agencies may reuse
+        # agency-assigned stop_ids without colliding.
+        pk_rows = conn.execute(
+            text("SELECT stop_id, stop_pk FROM gtfs_stops WHERE agency_id = :a"),
+            {"a": agency_id},
+        ).fetchall()
+        stop_pk_by_id = {r[0]: r[1] for r in pk_rows}
+        stop_times_df = stop_times_df.copy()
+        stop_times_df["stop_pk"] = (
+            stop_times_df["stop_id"].map(stop_pk_by_id).astype("Int64")
+        )
+        n_unmapped = int(stop_times_df["stop_pk"].isna().sum())
+        if n_unmapped:
+            print(f"[gtfs-loader] {agency_id}: {n_unmapped} stop_times rows "
+                  f"reference stop_ids missing from stops.txt (stop_pk left NULL)")
+        stop_times_cols = stop_times_cols + ["stop_pk"]
 
         _upsert_dataframe(conn, trips_subset, "gtfs_trips",
                           ["agency_id", "trip_id"])
@@ -347,9 +368,19 @@ def load_all_agencies_gtfs() -> dict:
             load_agency_gtfs(agency_id)
             results[agency_id] = "ok"
             print(f"[gtfs-loader] {agency_id}: ok")
+        except requests.HTTPError as exc:
+            status = getattr(exc.response, "status_code", None)
+            if status == 404:
+                # 511 publishes no GTFS datafeed for this operator (e.g. CR =
+                # Santa Cruz METRO). Not an error worth failing the ETL over.
+                results[agency_id] = "skipped: no GTFS datafeed on 511 (404)"
+                print(f"[gtfs-loader] {agency_id}: skipped (no GTFS datafeed on 511)")
+            else:
+                results[agency_id] = f"failed: {_redact_secrets(exc)}"
+                print(f"[gtfs-loader] {agency_id}: failed: {_redact_secrets(exc)}")
         except Exception as exc:
-            results[agency_id] = f"failed: {exc}"
-            print(f"[gtfs-loader] {agency_id}: failed: {exc}")
+            results[agency_id] = f"failed: {_redact_secrets(exc)}"
+            print(f"[gtfs-loader] {agency_id}: failed: {_redact_secrets(exc)}")
     return results
 
 

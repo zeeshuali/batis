@@ -87,7 +87,7 @@ def _build_route_texts(conn) -> List[Tuple[str, str]]:
                 / NULLIF(COUNT(e.id), 0) * 100, 1
             )                                                                AS on_time_pct,
             ROUND(MAX(e.delay_seconds))                                      AS max_delay,
-            (SELECT COUNT(DISTINCT st.stop_id)
+            (SELECT COUNT(DISTINCT st.stop_pk)
                FROM gtfs_stop_times st
                JOIN gtfs_trips t2 ON t2.agency_id = st.agency_id
                                  AND t2.trip_id   = st.trip_id
@@ -137,11 +137,12 @@ def _build_route_texts(conn) -> List[Tuple[str, str]]:
 
 
 def _build_stop_texts(conn) -> List[Tuple[str, str]]:
-    """(stop_id, descriptive text) for stops with route and delay context.
-    stop_id remains the cid because gtfs_stops keeps a single-column PK;
-    every JOIN now matches on agency_id to avoid cross-agency JOIN bleed."""
+    """(cid, descriptive text) for stops with route and delay context.
+    cid form: '{agency_id}:{stop_id}' (same shape as the route cids) because
+    stop_id alone repeats across agencies; joins use the surrogate stop_pk."""
     rows = conn.execute(text("""
         SELECT
+            s.agency_id,
             s.stop_id,
             s.stop_name,
             s.stop_code,
@@ -150,17 +151,15 @@ def _build_stop_texts(conn) -> List[Tuple[str, str]]:
                        ORDER BY r.route_short_name)  AS routes,
             ROUND(AVG(e.delay_seconds))              AS avg_delay
         FROM gtfs_stops s
-        JOIN gtfs_stop_times st ON st.stop_id   = s.stop_id
-                               AND st.agency_id = s.agency_id
+        JOIN gtfs_stop_times st ON st.stop_pk = s.stop_pk
         JOIN gtfs_trips      t  ON t.agency_id = st.agency_id
                                AND t.trip_id   = st.trip_id
         JOIN gtfs_routes     r  ON r.agency_id = t.agency_id
                                AND r.route_id  = t.route_id
         LEFT JOIN ops_trip_events e
-            ON e.stop_id    = s.stop_id
-           AND e.agency_id  = s.agency_id
+            ON e.stop_pk    = s.stop_pk
            AND e.service_date >= CURRENT_DATE - INTERVAL '7 days'
-        GROUP BY s.stop_id, s.stop_name, s.stop_code
+        GROUP BY s.stop_pk, s.agency_id, s.stop_id, s.stop_name, s.stop_code
         HAVING COUNT(DISTINCT t.route_id) >= 1
         LIMIT 2000
     """)).mappings().all()
@@ -180,7 +179,7 @@ def _build_stop_texts(conn) -> List[Tuple[str, str]]:
         if delay:
             parts.append(f"Average delay at this stop over the last 7 days: {delay} seconds.")
 
-        results.append((r["stop_id"], " ".join(parts)))
+        results.append((f'{r["agency_id"]}:{r["stop_id"]}', " ".join(parts)))
     return results
 
 

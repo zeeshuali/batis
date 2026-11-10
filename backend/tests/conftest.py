@@ -25,6 +25,12 @@ _DEFAULT_TEST_URL = (
 )
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", _DEFAULT_TEST_URL)
 
+# Safety: the app's own engine (get_engine) reads DATABASE_URL, and backend/.env
+# points that at the real dev database. Env vars beat .env in pydantic-settings,
+# so pin it to the test DB BEFORE any app module caches Settings. Without this,
+# tests that use a plain TestClient(app) read (and could write) the dev DB.
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+
 # ── Schema path ───────────────────────────────────────────────────────────────
 _SCHEMA_PATH = os.path.join(
     os.path.dirname(__file__), "..", "sql", "schema.sql"
@@ -154,8 +160,9 @@ def _seed(conn: Connection) -> None:
             dep = f"{base_hour:02d}:{(seq - 1) * 10:02d}:00"
             conn.execute(text("""
                 INSERT INTO gtfs_stop_times
-                    (trip_id, agency_id, stop_id, stop_sequence, departure_time, arrival_time)
-                VALUES (:tid, 'AC', :sid, :seq, :dep, :dep)
+                    (trip_id, agency_id, stop_id, stop_pk, stop_sequence, departure_time, arrival_time)
+                VALUES (:tid, 'AC', :sid, (SELECT stop_pk FROM gtfs_stops g
+                        WHERE g.agency_id = 'AC' AND g.stop_id = :sid), :seq, :dep, :dep)
                 ON CONFLICT DO NOTHING
             """), {"tid": tid, "sid": stop_id, "seq": seq, "dep": dep})
 
@@ -174,9 +181,11 @@ def _seed(conn: Connection) -> None:
         actual = sched + timedelta(seconds=delay)
         conn.execute(text("""
             INSERT INTO ops_trip_events
-                (agency_id, service_date, trip_id, route_id, stop_id,
+                (agency_id, service_date, trip_id, route_id, stop_id, stop_pk,
                  stop_sequence, scheduled_arrival, actual_arrival, delay_seconds)
-            VALUES ('AC', :sd, :tid, 'R001', 'S001', 1, :sched, :actual, :delay)
+            VALUES ('AC', :sd, :tid, 'R001', 'S001',
+                    (SELECT stop_pk FROM gtfs_stops g WHERE g.agency_id = 'AC' AND g.stop_id = 'S001'),
+                    1, :sched, :actual, :delay)
         """), {
             "sd": _SERVICE_DATE,
             "tid": f"T{(i % 5) + 1:03d}",
@@ -190,9 +199,11 @@ def _seed(conn: Connection) -> None:
         actual = sched + timedelta(seconds=delay)
         conn.execute(text("""
             INSERT INTO ops_trip_events
-                (agency_id, service_date, trip_id, route_id, stop_id,
+                (agency_id, service_date, trip_id, route_id, stop_id, stop_pk,
                  stop_sequence, scheduled_arrival, actual_arrival, delay_seconds)
-            VALUES ('AC', :sd, :tid, 'R002', 'S001', 1, :sched, :actual, :delay)
+            VALUES ('AC', :sd, :tid, 'R002', 'S001',
+                    (SELECT stop_pk FROM gtfs_stops g WHERE g.agency_id = 'AC' AND g.stop_id = 'S001'),
+                    1, :sched, :actual, :delay)
         """), {
             "sd": _SERVICE_DATE,
             "tid": f"T{(i % 5) + 6:03d}",

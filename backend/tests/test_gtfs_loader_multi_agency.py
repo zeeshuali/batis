@@ -41,31 +41,85 @@ def test_two_agencies_sharing_route_id_keep_both_rows(db_conn):
         ))
 
 
-def test_two_agencies_sharing_stop_id_collide_loudly(db_conn):
-    """gtfs_stops kept single-column PK (stop_safety_scores and
-    stop_features FK to it). With 0 cross-agency stop_id collisions in
-    current data, a future colliding load should error LOUDLY on the
-    PK rather than silently overwrite. This guards that intended
-    behaviour — see migration 009 'Decision points' notes."""
+def test_two_agencies_sharing_stop_id_keep_both_with_distinct_stop_pk(db_conn):
+    """Migration 010: gtfs_stops PK is the surrogate stop_pk, so two agencies
+    may reuse the same agency-assigned stop_id (e.g. DE/MA/MV vs others)."""
     try:
         db_conn.execute(text("""
           INSERT INTO gtfs_stops (stop_id, agency_id, stop_name,
                                   stop_lat, stop_lon)
-          VALUES ('TST_S1', 'TST_A', 'Stop 1', 37.8, -122.3)
+          VALUES ('TST_S1', 'TST_A', 'Stop 1', 37.8, -122.3),
+                 ('TST_S1', 'TST_B', 'Stop 1 again', 37.9, -122.2)
           ON CONFLICT (agency_id, stop_id) DO NOTHING
+        """))
+        rows = db_conn.execute(text(
+          "SELECT agency_id, stop_name, stop_pk FROM gtfs_stops "
+          "WHERE stop_id = 'TST_S1' AND agency_id LIKE 'TST_%'"
+        )).all()
+        assert {(r[0], r[1]) for r in rows} == {
+            ("TST_A", "Stop 1"), ("TST_B", "Stop 1 again")
+        }
+        assert len({r[2] for r in rows}) == 2  # distinct surrogate keys
+    finally:
+        db_conn.execute(text(
+          "DELETE FROM gtfs_stops WHERE agency_id LIKE 'TST_%'"
+        ))
+
+
+def test_same_agency_duplicate_stop_id_is_rejected(db_conn):
+    """The natural key (agency_id, stop_id) must stay unique within an agency
+    so a reload upserts instead of duplicating."""
+    try:
+        db_conn.execute(text("""
+          INSERT INTO gtfs_stops (stop_id, agency_id, stop_name)
+          VALUES ('TST_S2', 'TST_A', 'Stop 2')
         """))
         with pytest.raises(IntegrityError):
             db_conn.execute(text("""
-              INSERT INTO gtfs_stops (stop_id, agency_id, stop_name,
-                                      stop_lat, stop_lon)
-              VALUES ('TST_S1', 'TST_B', 'Stop 1 again', 37.9, -122.2)
-              ON CONFLICT (agency_id, stop_id) DO NOTHING
+              INSERT INTO gtfs_stops (stop_id, agency_id, stop_name)
+              VALUES ('TST_S2', 'TST_A', 'Stop 2 dup')
             """))
     finally:
         db_conn.rollback()
         db_conn.execute(text(
           "DELETE FROM gtfs_stops WHERE agency_id LIKE 'TST_%'"
         ))
+
+
+def test_stop_times_reference_the_right_agencys_stop_via_stop_pk(db_conn):
+    """stop_times.stop_pk must point at the owning agency's stop, even when
+    another agency has a stop with the same stop_id."""
+    try:
+        db_conn.execute(text("""
+          INSERT INTO gtfs_routes (route_id, agency_id, route_type)
+          VALUES ('R1', 'TST_A', 3) ON CONFLICT DO NOTHING
+        """))
+        db_conn.execute(text("""
+          INSERT INTO gtfs_trips (trip_id, agency_id, route_id, service_id)
+          VALUES ('T1', 'TST_A', 'R1', 'WD') ON CONFLICT DO NOTHING
+        """))
+        db_conn.execute(text("""
+          INSERT INTO gtfs_stops (stop_id, agency_id, stop_name)
+          VALUES ('TST_S3', 'TST_A', 'A stop'), ('TST_S3', 'TST_B', 'B stop')
+        """))
+        pk_a = db_conn.execute(text(
+          "SELECT stop_pk FROM gtfs_stops WHERE agency_id='TST_A' AND stop_id='TST_S3'"
+        )).scalar()
+        db_conn.execute(text("""
+          INSERT INTO gtfs_stop_times (trip_id, agency_id, stop_id, stop_pk, stop_sequence)
+          VALUES ('T1', 'TST_A', 'TST_S3', :pk, 1)
+        """), {"pk": pk_a})
+        name = db_conn.execute(text("""
+          SELECT s.stop_name FROM gtfs_stop_times st
+          JOIN gtfs_stops s ON s.stop_pk = st.stop_pk
+          WHERE st.trip_id = 'T1' AND st.agency_id = 'TST_A'
+        """)).scalar()
+        assert name == "A stop"
+    finally:
+        db_conn.execute(text("DELETE FROM gtfs_stop_times WHERE agency_id LIKE 'TST_%'"))
+        db_conn.execute(text("DELETE FROM gtfs_trips  WHERE agency_id LIKE 'TST_%'"))
+        db_conn.execute(text("DELETE FROM gtfs_routes WHERE agency_id LIKE 'TST_%'"))
+        db_conn.execute(text("DELETE FROM gtfs_stops  WHERE agency_id LIKE 'TST_%'"))
 
 
 def test_two_agencies_sharing_trip_id_keep_both(db_conn):

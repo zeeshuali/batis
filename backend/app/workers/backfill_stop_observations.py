@@ -16,6 +16,8 @@ from app.services.five11_stop_observations import backfill_last_n_months
 
 
 def main() -> int:
+    from app.core.redact import install_redaction
+    install_redaction()
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 12
     print(f"[backfill] Loading last {n} months of stop_observations...")
     with get_engine().begin() as conn:

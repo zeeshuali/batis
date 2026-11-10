@@ -106,16 +106,15 @@ def build_coverage_cells(conn: Optional[Connection] = None) -> None:
                 ),
 
                 -- Per-stop trip frequency (distinct trips / service hours as proxy for trips/hr).
-                -- COUNT(DISTINCT trip_id) keys by trip_id alone, which is safe today
-                -- because gtfs_stops keeps a single-column stop_id PK (no cross-agency
-                -- stop_id collisions in current data). If that decision is revisited
-                -- and stops become multi-agency-keyed, count over (agency_id, trip_id).
+                -- Keyed by the surrogate stop_pk (migration 010) and counting
+                -- (agency_id, trip_id) so agencies sharing ids never merge.
                 stop_freq AS (
                   SELECT
-                    st.stop_id,
-                    COUNT(DISTINCT st.trip_id)::double precision / :service_hours AS trips_per_hour
+                    st.stop_pk,
+                    COUNT(DISTINCT (st.agency_id, st.trip_id))::double precision / :service_hours AS trips_per_hour
                   FROM gtfs_stop_times st
-                  GROUP BY st.stop_id
+                  WHERE st.stop_pk IS NOT NULL
+                  GROUP BY st.stop_pk
                 ),
 
                 -- Average frequency across walk-accessible stops per cell
@@ -127,7 +126,7 @@ def build_coverage_cells(conn: Optional[Connection] = None) -> None:
                   JOIN gtfs_stops s
                     ON s.geom IS NOT NULL
                    AND ST_DWithin(ST_Centroid(g.geom), s.geom, :walk_deg)
-                  JOIN stop_freq f ON f.stop_id = s.stop_id
+                  JOIN stop_freq f ON f.stop_pk = s.stop_pk
                   GROUP BY g.cell_id
                 )
 

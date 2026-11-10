@@ -122,7 +122,7 @@ def ada_fixture(db_conn):
                  wheelchair_boarding, geom)
               VALUES (:sid, :aid, 'Test', :lt, :wb,
                       ST_SetSRID(ST_MakePoint(:lon, :lat), 4326))
-              ON CONFLICT (stop_id) DO UPDATE
+              ON CONFLICT (agency_id, stop_id) DO UPDATE
                 SET location_type        = EXCLUDED.location_type,
                     wheelchair_boarding  = EXCLUDED.wheelchair_boarding,
                     geom                 = EXCLUDED.geom
@@ -152,8 +152,11 @@ def ada_fixture(db_conn):
         """))
         db_conn.execute(text("""
           INSERT INTO gtfs_stop_times
-            (trip_id, agency_id, stop_id, stop_sequence, departure_time, arrival_time)
-          VALUES ('test-trip-1', 'TESTADA', 'test-stop-A', 1, '08:00:00', '08:00:00')
+            (trip_id, agency_id, stop_id, stop_pk, stop_sequence, departure_time, arrival_time)
+          VALUES ('test-trip-1', 'TESTADA', 'test-stop-A',
+                  (SELECT stop_pk FROM gtfs_stops g
+                    WHERE g.agency_id = 'TESTADA' AND g.stop_id = 'test-stop-A'),
+                  1, '08:00:00', '08:00:00')
           ON CONFLICT DO NOTHING
         """))
 
@@ -372,15 +375,20 @@ def test_get_stop_ada_gap_breakdown_falls_back_when_routes_row_missing(
 
     # Drop FK, clobber gtfs_routes, restore FK (also NOT VALID since the
     # orphan trip would otherwise fail validation).
-    db_conn.execute(text(
-      "ALTER TABLE gtfs_trips DROP CONSTRAINT gtfs_trips_route_id_fkey"
-    ))
+    # The FK's name differs between a fresh schema.sql install (auto-named)
+    # and a migrated DB (gtfs_trips_route_id_fkey), so look it up.
+    fk_name = db_conn.execute(text("""
+      SELECT conname FROM pg_constraint
+       WHERE conrelid = 'gtfs_trips'::regclass AND contype = 'f'
+         AND confrelid = 'gtfs_routes'::regclass
+    """)).scalar_one()
+    db_conn.execute(text(f'ALTER TABLE gtfs_trips DROP CONSTRAINT "{fk_name}"'))
     db_conn.execute(text(
       "DELETE FROM gtfs_routes WHERE route_id = 'test-route-1'"
     ))
-    db_conn.execute(text("""
+    db_conn.execute(text(f"""
       ALTER TABLE gtfs_trips
-        ADD CONSTRAINT gtfs_trips_route_id_fkey
+        ADD CONSTRAINT "{fk_name}"
         FOREIGN KEY (agency_id, route_id)
         REFERENCES gtfs_routes (agency_id, route_id) NOT VALID
     """))

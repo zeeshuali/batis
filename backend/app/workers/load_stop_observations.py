@@ -41,6 +41,8 @@ log = logging.getLogger(__name__)
 
 
 def main() -> None:
+    from app.core.redact import install_redaction
+    install_redaction()
     parser = argparse.ArgumentParser(
         description="Load 511.org monthly stop_observations into BATIS DB"
     )

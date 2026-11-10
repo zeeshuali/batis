@@ -65,6 +65,7 @@ def seed_ops_from_static(
                     t.agency_id,
                     t.route_id,
                     st.stop_id,
+                    st.stop_pk,
                     st.stop_sequence,
                     st.arrival_time
                 FROM gtfs_trips t
@@ -100,6 +101,7 @@ def seed_ops_from_static(
                 "trip_id": r["trip_id"],
                 "route_id": r["route_id"],
                 "stop_id": r["stop_id"],
+                "stop_pk": r["stop_pk"],
                 "stop_sequence": r["stop_sequence"],
                 "scheduled_arrival": scheduled,
                 "actual_arrival": actual,
@@ -116,11 +118,11 @@ def seed_ops_from_static(
             text(
                 """
                 INSERT INTO ops_trip_events (
-                  service_date, agency_id, trip_id, route_id, stop_id, stop_sequence,
+                  service_date, agency_id, trip_id, route_id, stop_id, stop_pk, stop_sequence,
                   scheduled_arrival, actual_arrival, delay_seconds,
                   headway_seconds, occupancy_level
                 ) VALUES (
-                  :service_date, :agency_id, :trip_id, :route_id, :stop_id, :stop_sequence,
+                  :service_date, :agency_id, :trip_id, :route_id, :stop_id, :stop_pk, :stop_sequence,
                   :scheduled_arrival, :actual_arrival, :delay_seconds,
                   :headway_seconds, :occupancy_level
                 )
