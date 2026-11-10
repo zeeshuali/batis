@@ -1,6 +1,7 @@
 services:
   postgres:
-    image: postgis/postgis:16-3.4
+    build: ./docker/postgres
+    image: batis-postgres:16-postgis3.4-pgvector
     environment:
       POSTGRES_DB: bay_area_transit_intel
       POSTGRES_USER: postgres
@@ -14,10 +15,8 @@ services:
     shm_size: 1gb
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # Schema is applied manually via the bootstrap script (see Makefile / README)
-    # because schema.sql contains CREATE EXTENSION vector, which the stock
-    # postgis image does not bundle; the application code is tolerant of the
-    # missing extension.
+    # Custom image = postgis 16 + pgvector (docker/postgres/Dockerfile). Schema is
+    # applied manually via the bootstrap script (see Makefile / README).
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s

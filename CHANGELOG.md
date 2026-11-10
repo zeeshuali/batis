@@ -4,6 +4,11 @@ Newest first. Update this file (and PROGRESS.md and memory) after every change.
 
 ## 2026-11-10
 
+### Added: pgvector (task 6)
+- `docker/postgres/Dockerfile`: postgis 16-3.4 plus `postgresql-16-pgvector` (pgdg sources pointed at apt-archive because bullseye is EOL). `docker-compose.yml` now builds it as `batis-postgres:16-postgis3.4-pgvector`. Same major version, so volume `batis_postgres_data` was reused and no data was lost.
+- Created extension `vector` and `ai_embeddings` in the dev DB. First `run_embed_once()`: 621 routes, 2,000 stops (the pipeline's cap), 70 ops summaries from real RT data.
+- Ollama on this machine has `qwen3.5:4b`, but config uses `llama3.1:8b`. Pull that model or set `OLLAMA_MODEL`.
+
 ### Changed: spatial transfer reliability (task 5, migration 011)
 - Stops of different agencies are now matched by distance, not by `stop_id` label. New table `stop_transfer_links` holds every cross-agency pair within the largest radius (400 m) with `distance_m` (35,140 directed pairs). `transfer_reliability` is keyed by `(from_stop_pk, to_stop_pk)` and carries `distance_m`, `to_stop_id`.
 - The radius is a read-time filter. Settings `transfer_radii_m` (50, 100, 150, 200, 300, 400), `transfer_default_radius_m` (150), `transfer_walk_speed_mps` (1.2). Walk time per pair = max(60 s, distance / speed).
