@@ -15,6 +15,7 @@ from typing import Optional
 
 import certifi
 import requests
+from app.core.run_log import tracked_get
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
@@ -149,7 +150,7 @@ def load_all_pathways(conn: Connection) -> dict[str, int]:
     for agency_id in agencies:
         try:
             url = f"{base}?operator_id={agency_id}&api_key={s.five11_api_key}"
-            resp = requests.get(url, timeout=120, verify=certifi.where())
+            resp = tracked_get(url, timeout=120, verify=certifi.where())
             resp.raise_for_status()
             n = load_pathways_from_zip_bytes(conn, agency_id, resp.content)
             if n > 0:

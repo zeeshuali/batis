@@ -4,6 +4,18 @@ Newest first. Update this file (and PROGRESS.md and memory) after every change.
 
 ## 2026-11-10
 
+### Added: System Status dashboard (migration 012)
+- Tables `api_call_log` and `job_runs`; helper `app/core/run_log.py` (`tracked_get`, `job_run`, `prune_run_log`). Every outbound `requests.get` in the 511, Oakland, Census and alerts loaders now goes through `tracked_get` (stores host + path, status, latency, error; never the query string, so API keys cannot reach the table).
+- Jobs recorded: `rt_ingestor`, `baseline_predictor`, `embed_pipeline`, `stop_observations_load`, `etl_run_data_jobs`.
+- Endpoints `GET /admin/status`, `/admin/api-calls`, `/admin/job-runs`. New UI tab **Status**: overall banner, checks, 511 budget meter, jobs (click for run history), API sources, data freshness, recent calls (errors-only and source filters, CSV export), threads and Ollama; auto-refresh every 30 s.
+- Settings: `five11_rate_limit_per_hour`, `status_rt_stale_minutes`, `status_job_stale_minutes`, `run_log_retention_days`.
+- Checked live: one real RT poll logged 2 calls to 511 (200, 300 ms and 825 ms) and 84,135 rows; the snapshot correctly flagged stale data before the poll and showed "latest position 1 min ago" after. No key material appears in any response.
+- Tests: 217 backend (+6), 115 frontend (+3).
+
+### Housekeeping (task 8)
+- Docs corrected: `BACKEND_API_KEY` was already in `config.py`; the Vite proxy targets 8001, the docker-compose backend port, not 8002. Ollama now has `llama3.1:8b`.
+- Note: the host restarted and the Docker containers had exited. `docker compose up -d postgres postgres-test` brought them back with data intact.
+
 ### Added: pgvector (task 6)
 - `docker/postgres/Dockerfile`: postgis 16-3.4 plus `postgresql-16-pgvector` (pgdg sources pointed at apt-archive because bullseye is EOL). `docker-compose.yml` now builds it as `batis-postgres:16-postgis3.4-pgvector`. Same major version, so volume `batis_postgres_data` was reused and no data was lost.
 - Created extension `vector` and `ai_embeddings` in the dev DB. First `run_embed_once()`: 621 routes, 2,000 stops (the pipeline's cap), 70 ops summaries from real RT data.

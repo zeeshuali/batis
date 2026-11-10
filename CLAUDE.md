@@ -30,7 +30,7 @@ The user has a **511.org API token stored in `backend/.env`** as `FIVE11_API_KEY
 | Charts | Recharts |
 | HTTP | Axios (frontend), requests (backend) |
 
-Vite proxy: `/api` → `http://127.0.0.1:8002` (NOTE: backend runs on 8000, not 8002 — this proxy config is wrong and unused unless `VITE_API_BASE_URL=/api` is set in frontend `.env`)
+Vite proxy: `/api` → `http://127.0.0.1:8001` (the docker-compose `backend` port; a local `uvicorn` runs on 8000, so point `VITE_API_BASE_URL` at it directly). The proxy is only used when `VITE_API_BASE_URL=/api`.
 
 ---
 
@@ -45,7 +45,7 @@ batis/
 │   │   ├── main.py             ← All FastAPI routes (~55 route decorators as of 2026-11-09)
 │   │   ├── db.py               ← Engine singleton
 │   │   ├── core/
-│   │   │   ├── config.py       ← Pydantic Settings (BACKEND_API_KEY missing here)
+│   │   │   ├── config.py       ← Pydantic Settings (incl. BACKEND_API_KEY, 511 rate limit, transfer radii, status thresholds)
 │   │   │   └── security.py     ← X-API-Key auth (disabled if key not set)
 │   │   ├── services/           ← All business logic
 │   │   └── workers/
@@ -88,7 +88,7 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-Current test count: **207 tests passing** (39 at Phase 0 close).
+Current test count: **217 backend** tests (39 at Phase 0 close) and **115 frontend** (vitest) passing.
 
 If a Phase 0 regression appears, the matching test in `backend/tests/`
 will catch it before merge — schema lint and import smoke tests cover
@@ -103,16 +103,23 @@ frontend test substrate that StopDrawer currently lacks.
 ## Local DB state (updated 2026-11-10, after migration 010 + ETL re-run)
 
 - `docker-compose.yml`: `postgres` (PostGIS 16, host port **5434**, persistent volume `batis_postgres_data`, creds `postgres`/`batis_dev`, `shm_size: 1gb`) and `postgres-test` (PostGIS 15, port **5433**, **tmpfs — wiped on stop**, used only by pytest).
-- `backend/.env` `DATABASE_URL` points at the persistent DB on **5434**. Schema + migrations 001–011 are applied.
+- `backend/.env` `DATABASE_URL` points at the persistent DB on **5434**. Schema + migrations 001–012 are applied.
 - Loaded: 621 routes, **20,260 stops** (185 stop_ids are shared by >1 agency), 90k trips, 3.17M stop_times (29 of 30 monitored agencies; **CR = Santa Cruz METRO has no 511 GTFS feed** and is reported as skipped), 1,772 census tracts + ambulatory, 2,629 fare products, 2,350 coverage cells, fare_burden, service_delivery_gap (688), per-stop features/safety/ADA gap (20,260 each).
 - `stop_observations`: **52.4M rows, 2026-09 and 2026-10** (about 0.3% have no stop_pk because the stop is missing from the feed; agency EM is unmonitored). The 12-month backfill (`python -m app.workers.backfill_stop_observations 12`, multi-hour, 60 req/hr) has not been run. Don't run two ETLs at once: the month-already-loaded check is not atomic and doubled this table once (fixed by deleting the second batch).
 - **Synthetic ops data removed (2026-11-10):** `seed_from_static.py` and its call in `run_data_jobs.py` are deleted. `ops_trip_events`, `trip_stop_snapshots`, `ops_headways`, `delay_predictions`, `bunching_predictions`, `demand_forecasts`, `crowding_predictions` were truncated (all 0 rows; backup `~/batis-backups/pre-synthetic-purge-20261110.dump`). They stay empty until `run_rt_ingestor` fills `ops_trip_events` from live 511 data. The RT ingestor was fixed (see CHANGELOG) and a live poll filled `rt_vehicle_positions_raw` and `ops_trip_events` with real 511 data; it only accumulates while uvicorn or `python -m app.workers.run_rt_ingestor` runs (poll every `FIVE11_RT_POLL_SECONDS`, default 180). Delay/bunching/demand/crowding UI shows empty states until then.
 - `transfer_reliability` is matched spatially (migration 011, applied). `stop_transfer_links` has 35,140 directed cross-agency pairs up to 400 m. Dev DB holds a computed 2026-10-28..30 slice (19,151 pairs). The nightly step recomputes from the newest data. Radius options live in `config.py` and are chosen in the UI.
-- **pgvector installed (2026-11-10):** the `postgres` service builds `docker/postgres/Dockerfile` (postgis 16 + pgvector). `ai_embeddings` holds 621 routes, 2,000 stops, 70 ops summaries. Ollama here has `qwen3.5:4b`, not the configured `llama3.1:8b`, so chat answers need `ollama pull llama3.1:8b` or `OLLAMA_MODEL=qwen3.5:4b`.
+- **pgvector installed (2026-11-10):** the `postgres` service builds `docker/postgres/Dockerfile` (postgis 16 + pgvector). `ai_embeddings` holds 621 routes, 2,000 stops, 70 ops summaries. Ollama here now has the configured `llama3.1:8b`.
 - Safety scores use Oakland incidents only (the Berkeley fetch was removed 2026-11-10; it is out of scope).
 - Backup taken before migration 010: `~/batis-backups/pre-010-*.dump` (all tables except stop_observations data).
 - Rebuild order: `docker compose up -d postgres` → apply `sql/schema.sql` → `python -m app.workers.run_data_jobs`. For a DB created before migration 010 apply `sql/migrations/010_stop_surrogate_key.sql`, then `ALTER TABLE gtfs_stop_times VALIDATE CONSTRAINT gtfs_stop_times_stop_pk_fkey;`.
 - Logs: worker entry points and the API call `app.core.redact.install_redaction()` so `api_key=`/`token=` values are scrubbed from stdout/stderr/logging (requests puts the full URL in HTTPError text).
+
+## System Status dashboard (added 2026-11-10)
+
+Tab **Status** in the UI (`frontend/src/sections/Status.tsx`) for troubleshooting. Backend: `GET /admin/status` (one snapshot: DB, extensions, data freshness, 511 rate-limit budget, per-source error rates, job runs, background threads, Ollama), `GET /admin/api-calls` (`source`, `errors_only`, `hours`, `limit`), `GET /admin/job-runs` (`job`, `status`, `limit`). All need `X-API-Key` when `BACKEND_API_KEY` is set.
+Data comes from migration 012: `api_call_log` (host + path only, never the query string or key) and `job_runs`. Instrument with `app/core/run_log.py`: `tracked_get(url, **kw)` replaces `requests.get` for every outbound HTTP call, `with job_run("name") as jr:` wraps a run (`jr.set(rows=..)`, `jr.fail(msg)` for soft failures). Currently tracked jobs: `rt_ingestor`, `baseline_predictor`, `embed_pipeline`, `stop_observations_load`, `etl_run_data_jobs`. New loaders must use `tracked_get`, and new loops/workers must use `job_run`. Thresholds live in `config.py` (`five11_rate_limit_per_hour`, `status_rt_stale_minutes`, `status_job_stale_minutes`, `run_log_retention_days`); the log is pruned at API startup.
+
+---
 
 ## Data Flow Overview
 

@@ -8,6 +8,7 @@ from typing import Iterable
 import certifi
 import pandas as pd
 import requests
+from app.core.run_log import tracked_get
 from psycopg2.extras import execute_values
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
@@ -24,7 +25,7 @@ GTFS_REQUIRED_FILES = ["routes.txt", "stops.txt", "trips.txt", "stop_times.txt"]
 
 
 def _download_gtfs_zip(url: str) -> bytes:
-    resp = requests.get(url, timeout=120, verify=certifi.where())
+    resp = tracked_get(url, timeout=120, verify=certifi.where())
     resp.raise_for_status()
     return resp.content
 

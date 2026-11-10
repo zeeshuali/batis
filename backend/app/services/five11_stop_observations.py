@@ -19,6 +19,7 @@ from typing import Any
 import certifi
 import pandas as pd
 import requests
+from app.core.run_log import job_run, tracked_get
 from psycopg2.extras import execute_values
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
@@ -107,7 +108,7 @@ def download_month(year_month: str) -> io.BytesIO:
         f"&historic={year_month}-so"
     )
     log.info("[stop-obs] Downloading %s …", year_month)
-    resp = requests.get(url, timeout=300, stream=True, verify=certifi.where())
+    resp = tracked_get(url, timeout=300, stream=True, verify=certifi.where())
     resp.raise_for_status()
 
     buf = io.BytesIO()
@@ -282,6 +283,14 @@ def _batch_insert(raw_cur: Any, df: pd.DataFrame) -> int:
 
 
 def load_month(year_month: str, conn: Connection) -> int:
+    """Load one archive month, recording the run for the status dashboard."""
+    with job_run("stop_observations_load") as jr:
+        n = _load_month_impl(year_month, conn)
+        jr.set(rows=n, month=year_month)
+        return n
+
+
+def _load_month_impl(year_month: str, conn: Connection) -> int:
     """
     Download and load one month of stop_observations.
     Idempotent: deletes existing rows for the month before inserting.

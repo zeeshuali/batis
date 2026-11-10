@@ -8,6 +8,7 @@ import logging
 
 import certifi
 import requests
+from app.core.run_log import tracked_get
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
@@ -62,7 +63,7 @@ def _fetch_county_tracts(county_fips: str) -> list[list[str]]:
         f"&in=state:06+county:{county_fips}"
         f"&key={s.census_api_key}"
     )
-    resp = requests.get(url, timeout=60, verify=certifi.where())
+    resp = tracked_get(url, timeout=60, verify=certifi.where())
     resp.raise_for_status()
     return resp.json()
 

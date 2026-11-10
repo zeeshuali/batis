@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type SectionKey = "overview" | "operations" | "network" | "equity" | "benchmarks" | "agency" | "planning";
-const SECTION_KEYS: readonly SectionKey[] = ["overview", "operations", "network", "equity", "benchmarks", "agency", "planning"];
+export type SectionKey = "overview" | "operations" | "network" | "equity" | "benchmarks" | "agency" | "planning" | "status";
+const SECTION_KEYS: readonly SectionKey[] = ["overview", "operations", "network", "equity", "benchmarks", "agency", "planning", "status"];
 
 export interface UrlState {
   section:    SectionKey;

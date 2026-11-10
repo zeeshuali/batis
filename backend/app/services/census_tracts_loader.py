@@ -13,6 +13,7 @@ from typing import Any
 
 import certifi
 import requests
+from app.core.run_log import tracked_get
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
@@ -39,7 +40,7 @@ _COUNTY_FIPS = [
 def _fetch_county(county_fips: str) -> list[dict[str, Any]]:
     """Fetch tract GeoJSON features for one Bay Area county."""
     s = get_settings()
-    resp = requests.get(
+    resp = tracked_get(
         s.tigerweb_base_url,
         params={
             "where": f"STATE='06' AND COUNTY='{county_fips}'",

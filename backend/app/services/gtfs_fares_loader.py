@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 
 import certifi
 import requests
+from app.core.run_log import tracked_get
 from sqlalchemy import text
 from sqlalchemy.engine import Connection, Engine
 
@@ -52,7 +53,7 @@ _CSV_V1_FAREZONE_ATTRS   = "farezone_attributes.txt"
 
 def _download_fares_zip(agency_id: str, api_key: str) -> bytes:
     """Fetch the fares.zip for one agency from 511.org."""
-    resp = requests.get(
+    resp = tracked_get(
         _FARES_URL,
         params={"operator_id": agency_id, "api_key": api_key, "file": "fares"},
         timeout=60,

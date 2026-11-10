@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     # 511 limit is 60 req/hour shared with other jobs, so keep this >= 120.
     five11_rt_poll_seconds: int = 180
 
+    # 511 allows 60 requests per rolling hour. The status dashboard shows usage against it.
+    five11_rate_limit_per_hour: int = 60
+    # Status dashboard: run-log retention, and thresholds that turn a status amber/red.
+    run_log_retention_days: int = 14
+    status_rt_stale_minutes: int = 15
+    status_job_stale_minutes: int = 120
+
     # Cross-agency transfers are matched spatially. Links are stored up to the largest
     # radius and the user picks one (<= max) at read time.
     transfer_radii_m: list[int] = [50, 100, 150, 200, 300, 400]

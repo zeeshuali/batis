@@ -9,6 +9,7 @@ import { EquitySafety } from "../sections/EquitySafety";
 import { BenchmarksDrift } from "../sections/BenchmarksDrift";
 import { Agency } from "../sections/Agency";
 import { Planning } from "../sections/Planning";
+import { Status } from "../sections/Status";
 import { useTheme } from "../context/ThemeContext";
 import { useUrlState, type SectionKey } from "../lib/useUrlState";
 import "../design/shell.css";
@@ -22,6 +23,7 @@ const TABS: { key: SectionKey; label: string }[] = [
   { key: "equity",     label: "Equity & Safety"   },
   { key: "benchmarks", label: "Benchmarks & Drift"},
   { key: "planning",   label: "Planning"          },
+  { key: "status",     label: "Status"            },
 ];
 
 export const AppShell: React.FC = () => {
@@ -72,6 +74,7 @@ export const AppShell: React.FC = () => {
         {active === "benchmarks" && <BenchmarksDrift />}
         {active === "agency"     && <Agency />}
         {active === "planning"   && <Planning />}
+        {active === "status"     && <Status />}
       </main>
 
       <aside className="shell-rail">

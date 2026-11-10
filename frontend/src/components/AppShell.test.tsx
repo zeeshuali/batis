@@ -57,10 +57,10 @@ function wrap(ui: React.ReactElement) {
 describe("AppShell", () => {
   beforeEach(() => { window.location.hash = ""; });
 
-  it("renders brand, all five tabs, and filter bar", () => {
+  it("renders brand, tabs, and filter bar", () => {
     render(wrap(<AppShell />));
     expect(screen.getByText("BATIS")).toBeInTheDocument();
-    ["Overview", "Operations", "Network", "Equity & Safety", "Benchmarks & Drift"].forEach(label => {
+    ["Overview", "Operations", "Network", "Equity & Safety", "Benchmarks & Drift", "Status"].forEach(label => {
       expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
     });
     expect(screen.getByLabelText(/from/i)).toBeInTheDocument();

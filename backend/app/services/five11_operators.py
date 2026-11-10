@@ -20,6 +20,7 @@ from typing import Any
 
 import certifi
 import requests
+from app.core.run_log import tracked_get
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
@@ -46,7 +47,7 @@ _SEED_AGENCIES: list[dict[str, Any]] = [
 
 def _get(path: str, **extra_params: str) -> Any:
     s = get_settings()
-    resp = requests.get(
+    resp = tracked_get(
         f"{s.five11_base_url}/{path}",
         params={"api_key": s.five11_api_key, "format": "json", **extra_params},
         timeout=30,

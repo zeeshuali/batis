@@ -7,6 +7,7 @@ from typing import Iterable
 
 import certifi
 import requests
+from app.core.run_log import job_run, tracked_get
 from dateutil import tz
 from google.transit import gtfs_realtime_pb2
 from sqlalchemy import text
@@ -50,7 +51,7 @@ def _build_trip_updates_url() -> str:
 
 
 def _fetch_feed(url: str) -> gtfs_realtime_pb2.FeedMessage:
-    resp = requests.get(url, timeout=30, verify=certifi.where())
+    resp = tracked_get(url, timeout=30, verify=certifi.where())
     resp.raise_for_status()
     feed = gtfs_realtime_pb2.FeedMessage()
     feed.ParseFromString(resp.content)
@@ -399,8 +400,13 @@ def run_polling_loop(poll_interval_seconds: int = 30, stop_event: "threading.Eve
     print(f"[five11-rt-ingestor] Starting — poll interval {poll_interval_seconds}s")
     while not _stop.is_set():
         try:
-            counts = ingest_five11_realtime_once()
-            errors = counts.get("errors", [])
+            with job_run("rt_ingestor") as jr:
+                counts = ingest_five11_realtime_once()
+                errors = counts.get("errors", [])
+                jr.set(rows=counts["vehicles"] + counts["trip_update_rows"],
+                       vehicles=counts["vehicles"], trip_update_rows=counts["trip_update_rows"])
+                if errors:
+                    jr.fail("; ".join(errors))
             status = "with errors" if errors else "OK"
             print(
                 f"[five11-rt-ingestor] {status} at {time.strftime('%H:%M:%S')} — "

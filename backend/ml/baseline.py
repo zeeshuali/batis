@@ -117,7 +117,10 @@ def run_baseline_loop(
     print("[baseline] Starting SQL baseline prediction loop")
     while not _stop.is_set():
         try:
-            n = run_baseline_once()
+            from app.core.run_log import job_run
+            with job_run("baseline_predictor") as jr:
+                n = run_baseline_once()
+                jr.set(rows=n)
             print(f"[baseline] Wrote {n} prediction rows at {time.strftime('%H:%M:%S')}")
         except Exception as exc:
             print(f"[baseline] Error: {exc}")

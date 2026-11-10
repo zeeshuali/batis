@@ -5,6 +5,7 @@ from typing import Any
 
 import certifi
 import requests
+from app.core.run_log import tracked_get
 
 from app.core.config import get_settings
 
@@ -24,7 +25,7 @@ def get_service_alerts() -> list[dict[str, Any]]:
             f"?agency=RG&api_key={settings.five11_api_key}&format=json"
         )
         try:
-            resp = requests.get(url, timeout=15, verify=certifi.where())
+            resp = tracked_get(url, timeout=15, verify=certifi.where())
             resp.raise_for_status()
             data = resp.json()
             # 511.org returns JSON-formatted GTFS-RT
@@ -45,7 +46,7 @@ def get_service_alerts() -> list[dict[str, Any]]:
 
     url = f"https://api.actransit.org/transit/gtfsrt/alerts?token={token}"
     try:
-        resp = requests.get(url, timeout=15, verify=certifi.where())
+        resp = tracked_get(url, timeout=15, verify=certifi.where())
         resp.raise_for_status()
     except Exception:
         return []

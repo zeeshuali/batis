@@ -253,7 +253,10 @@ def run_embed_loop(
     print("[embed] Starting embedding pipeline")
     while not _stop.is_set():
         try:
-            counts = run_embed_once()
+            from app.core.run_log import job_run
+            with job_run("embed_pipeline") as jr:
+                counts = run_embed_once()
+                jr.set(rows=sum(counts.values()), **counts)
             total = sum(counts.values())
             print(f"[embed] Upserted {total} embeddings at {time.strftime('%H:%M:%S')} — {counts}")
         except Exception as exc:

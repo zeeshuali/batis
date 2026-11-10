@@ -11,6 +11,7 @@ from typing import Optional
 
 import certifi
 import requests
+from app.core.run_log import tracked_get
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
@@ -68,7 +69,7 @@ def _fetch_census(county_fips: str) -> list[dict]:
     if key:
         params["key"] = key
     try:
-        resp = requests.get(_CENSUS_API, params=params, timeout=30, verify=certifi.where())
+        resp = tracked_get(_CENSUS_API, params=params, timeout=30, verify=certifi.where())
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:

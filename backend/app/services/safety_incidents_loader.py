@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import requests
+from app.core.run_log import tracked_get
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
@@ -35,7 +36,7 @@ def _fetch_socrata_all(url: str, where: str = "") -> list[dict]:
         params: dict = {"$limit": _PAGE_SIZE, "$offset": offset, "$order": ":id"}
         if where:
             params["$where"] = where
-        resp = requests.get(url, params=params, timeout=30, verify=certifi.where())
+        resp = tracked_get(url, params=params, timeout=30, verify=certifi.where())
         resp.raise_for_status()
         page_rows: list[dict] = resp.json()
         all_rows.extend(page_rows)

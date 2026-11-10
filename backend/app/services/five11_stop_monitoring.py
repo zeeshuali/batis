@@ -6,6 +6,7 @@ from typing import Any
 
 import certifi
 import requests
+from app.core.run_log import tracked_get
 
 from app.core.config import get_settings
 
@@ -35,7 +36,7 @@ def get_live_departures(stop_code: str, agency_id: str) -> list[dict[str, Any]]:
     )
 
     try:
-        resp = requests.get(url, timeout=10, verify=certifi.where())
+        resp = tracked_get(url, timeout=10, verify=certifi.where())
         resp.raise_for_status()
         data = resp.json()
     except Exception as exc:

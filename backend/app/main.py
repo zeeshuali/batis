@@ -58,6 +58,12 @@ _stop_event = threading.Event()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _stop_event.clear()
+    try:
+        from app.core.run_log import prune_run_log
+        with get_engine().begin() as _c:
+            prune_run_log(_c, get_settings().run_log_retention_days)
+    except Exception:
+        pass  # log tables may not exist yet (migration 012 not applied)
 
     # 511.org multi-agency RT ingestor — interval from settings (rate limit 60 req/hr)
     t_rt = threading.Thread(
@@ -134,6 +140,40 @@ def health():
         "database_url_configured": bool(settings.database_url),
         "gtfs_static_url": settings.gtfs_static_url,
     }
+
+
+# ── System status (troubleshooting dashboard) ─────────────────────────────────
+
+@app.get("/admin/status", dependencies=[Depends(api_key_dependency)])
+def admin_status(conn: Connection = Depends(get_conn)):
+    """One-call health snapshot: DB, data freshness, 511 budget, jobs, threads, Ollama."""
+    from app.services.system_status import get_system_status
+    return get_system_status(conn)
+
+
+@app.get("/admin/api-calls", dependencies=[Depends(api_key_dependency)])
+def admin_api_calls(
+    source: Optional[str] = Query(default=None),
+    errors_only: bool = Query(default=False),
+    hours: int = Query(default=24, ge=1, le=336),
+    limit: int = Query(default=100, ge=1, le=1000),
+    conn: Connection = Depends(get_conn),
+):
+    """Recent outbound API calls (host + path only, never the query string)."""
+    from app.services.system_status import get_api_calls
+    return get_api_calls(conn, source=source, errors_only=errors_only, hours=hours, limit=limit)
+
+
+@app.get("/admin/job-runs", dependencies=[Depends(api_key_dependency)])
+def admin_job_runs(
+    job: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None, pattern="^(running|ok|error)$"),
+    limit: int = Query(default=100, ge=1, le=1000),
+    conn: Connection = Depends(get_conn),
+):
+    """Recent worker/loop runs with status, rows written and error text."""
+    from app.services.system_status import get_job_runs
+    return get_job_runs(conn, job=job, status=status, limit=limit)
 
 
 @app.get("/")
