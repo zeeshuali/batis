@@ -9,10 +9,9 @@ This file is Claude's persistent memory for the BATIS project. Read this at the 
 
 **BATIS** (Bay Area Transit Intelligence System) is a full-stack transit analytics platform for the San Francisco Bay Area. It is NOT a rider-facing app — it is an **operator/analyst dashboard** for transit planners, city staff, and equity researchers.
 
-**Current data source**: AC Transit only (Oakland/East Bay bus).
-**Planned expansion**: 511.org regional API (30+ Bay Area agencies — BART, Muni, Caltrain, VTA, WETA, etc.)
+**Data sources**: 511.org regional API (30+ Bay Area agencies) is integrated; AC Transit direct GTFS-RT is legacy. Also Oakland open data (safety), Census ACS (equity).
 
-The user has a **511.org API token stored in `backend/.env`** as `FIVE11_API_KEY` (or similar). The entire 511.org integration is still to be built.
+The user has a **511.org API token stored in `backend/.env`** as `FIVE11_API_KEY` (or similar). The 511.org integration is **built** (verified 2026-11-09): `app/services/five11_{operators,rt_ingestor,stop_monitoring,stop_observations,traffic}.py`, workers `run_rt_ingestor`, `backfill_stop_observations`, `load_stop_observations`. ETL (`run_data_jobs.py`) is now 20 steps; step 13 loads last month's `stop_observations` if `FIVE11_API_KEY` is set. Built on top (Sprints 4a–5c): transfer reliability, fares v1/v2 + calculator, fare burden, service delivery gap map, ADA gap, transfer deserts, regional planning page. See `docs/superpowers/{specs,plans}/`.
 
 ---
 
@@ -41,14 +40,14 @@ batis/
 │   ├── .env                    ← DB URL, API keys (NEVER commit)
 │   ├── requirements.txt        ← All deps including sentence-transformers, httpx, certifi, pytest
 │   ├── app/
-│   │   ├── main.py             ← All FastAPI routes (29 endpoints)
+│   │   ├── main.py             ← All FastAPI routes (~55 route decorators as of 2026-11-09)
 │   │   ├── db.py               ← Engine singleton
 │   │   ├── core/
 │   │   │   ├── config.py       ← Pydantic Settings (BACKEND_API_KEY missing here)
 │   │   │   └── security.py     ← X-API-Key auth (disabled if key not set)
 │   │   ├── services/           ← All business logic
 │   │   └── workers/
-│   │       └── run_data_jobs.py ← 11-step one-shot ETL pipeline
+│   │       └── run_data_jobs.py ← 20-step one-shot ETL pipeline
 │   ├── ml/
 │   │   ├── baseline.py         ← SQL delay predictor (runs every 30 min)
 │   │   └── embed.py            ← RAG embedding pipeline (runs every 30 min)
@@ -99,10 +98,17 @@ frontend test substrate that StopDrawer currently lacks.
 
 ---
 
+## Local DB state (checked 2026-11-09)
+
+- `docker-compose.yml` has two Postgres services: `postgres` (PostGIS 16, host port **5434**, persistent volume `batis_postgres_data`) and `postgres-test` (PostGIS 15, port **5433**, **tmpfs — wiped on stop**, db `bay_area_transit_intel_test`).
+- `backend/.env` `DATABASE_URL` points at **5433** / `bay_area_transit_intel` — that is the ephemeral test container, not the persistent one, and the credentials do not match `postgres` on 5434. Fix before running ETL.
+- The persistent DB on 5434 currently has only `toll_rates`, `traffic_events`, `work_zones` — **`schema.sql` + migrations 001–009 have not been applied and no GTFS / stop_observations data is loaded**. The "data milestone" commit (92558d1) ran against a DB that no longer exists locally. Coverage numbers (months, agencies) are unknown until the ETL is re-run.
+- Rebuild order: `docker compose up -d postgres` → apply `sql/schema.sql` + `sql/migrations/*` → `python -m app.workers.run_data_jobs` → `python -m app.workers.backfill_stop_observations 12` (multi-hour, 60 req/hr limit).
+
 ## Data Flow Overview
 
 ```
-511.org API (target) ──────────────────────────────────┐
+511.org API ───────────────────────────────────────────┐
 AC Transit API (GTFS-RT) → gtfs_rt_ingestor.py         │
                          → rt_vehicle_positions_raw     │
                          → ops_trip_events              │
@@ -119,7 +125,7 @@ Oakland Open Data    → safety_incidents_loader.py       │
 Census ACS           → equity_loader.py                 │
                      → coverage_cells.equity_score      │
                                                         ▼
-                                            FastAPI (29 endpoints)
+                                            FastAPI (~55 endpoints)
                                                    │
                                             React Frontend
                                             (Mapbox + Recharts)
