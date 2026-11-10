@@ -285,6 +285,10 @@ def _batch_insert(raw_cur: Any, df: pd.DataFrame) -> int:
 def load_month(year_month: str, conn: Connection) -> int:
     """Load one archive month, recording the run for the status dashboard."""
     with job_run("stop_observations_load") as jr:
+        # Transaction-scoped lock: a second concurrent loader fails fast instead of
+        # double-loading a month (the "already loaded" check is not atomic).
+        if not conn.execute(text("SELECT pg_try_advisory_xact_lock(727001)")).scalar():
+            raise RuntimeError("another stop_observations load is already running")
         n = _load_month_impl(year_month, conn)
         jr.set(rows=n, month=year_month)
         return n
@@ -413,6 +417,33 @@ def backfill_last_n_months(conn: Connection, n: int = 12) -> dict[str, int]:
     loaded are skipped.
     """
     return load_missing_months(conn, months_back=n)
+
+
+def backfill_step(
+    conn: Connection,
+    months_per_run: int | None = None,
+    max_months_back: int | None = None,
+) -> dict[str, int]:
+    """One small, repeatable backfill step (used by the daily cron).
+
+    Loads up to `months_per_run` of the newest missing months that are no older than
+    `max_months_back` months. Returns {} when nothing is left to load.
+    """
+    s = get_settings()
+    months_per_run = months_per_run or s.stop_obs_backfill_months_per_run
+    max_months_back = max_months_back or s.stop_obs_backfill_max_months_back
+    horizon = get_available_months()[-max_months_back:]
+    loaded = set(get_loaded_months(conn))
+    missing = [m for m in horizon if m not in loaded]
+    results: dict[str, int] = {}
+    for ym in missing[-months_per_run:][::-1]:
+        try:
+            results[ym] = load_month(ym, conn)
+        except Exception as exc:
+            log.error("[stop-obs] Failed to load %s: %s", ym, exc)
+            results[ym] = -1
+            break  # transaction is aborted, so stop and let the next run retry
+    return results
 
 
 def backfill_all_history(conn: Connection) -> dict[str, int]:

@@ -265,3 +265,47 @@ def test_service_delivery_gap_empty_window(db_conn: Connection):
         db_conn, agency_id="AC", start_date=past, end_date=past
     )
     assert rows == [], f"Expected empty list for empty window, got {rows}"
+
+
+# ── backfill_step (daily cron) ────────────────────────────────────────────────
+
+def test_backfill_step_loads_newest_missing_month_within_horizon(db_conn: Connection):
+    """With 1 month per run it loads the newest missing month, and never one older than the horizon."""
+    from app.services.five11_stop_observations import backfill_step, get_available_months
+
+    months = get_available_months()
+    newest, second = months[-1], months[-2]
+    downloaded: list[str] = []
+
+    def _track(ym: str) -> io.BytesIO:
+        downloaded.append(ym)
+        y, m = ym.split("-")
+        rows = [{**_SYNTHETIC_ROWS[0], "service_date": f"{y}-{m}-15",
+                 "scheduled_arrival": f"{y}-{m}-15T08:00:00+00:00",
+                 "observed_arrival": f"{y}-{m}-15T08:02:00+00:00"}]
+        return _make_synthetic_zip(rows)
+
+    with patch("app.services.five11_stop_observations.download_month", side_effect=_track):
+        with db_conn.begin():
+            first = backfill_step(db_conn, months_per_run=1, max_months_back=2)
+        with db_conn.begin():
+            second_run = backfill_step(db_conn, months_per_run=1, max_months_back=2)
+        with db_conn.begin():
+            third = backfill_step(db_conn, months_per_run=1, max_months_back=2)
+
+    assert list(first) == [newest] and first[newest] > 0
+    assert list(second_run) == [second]
+    assert third == {}, "nothing older than the 2-month horizon may be loaded"
+    assert downloaded == [newest, second]
+
+
+def test_concurrent_load_fails_fast_instead_of_double_loading(db_conn: Connection, test_engine):
+    """A second session cannot load while the first holds the advisory lock."""
+    from app.services.five11_stop_observations import load_month
+
+    with db_conn.begin():
+        db_conn.execute(text("SELECT pg_advisory_xact_lock(727001)"))
+        with test_engine.connect() as other:
+            with other.begin():
+                with pytest.raises(RuntimeError, match="already running"):
+                    load_month("2026-01", other)

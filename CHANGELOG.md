@@ -4,6 +4,12 @@ Newest first. Update this file (and PROGRESS.md and memory) after every change.
 
 ## 2026-11-10
 
+### Added: daily stop_observations backfill (task 7)
+- `python -m app.workers.backfill_stop_observations` with no argument is now one small step: it loads the newest missing month, going back at most 12 months (`stop_obs_backfill_months_per_run`=1, `stop_obs_backfill_max_months_back`=12 in `config.py`). With nothing left it exits 0. `... N` keeps the old behaviour (N newest missing months).
+- `backfill_step()` in `five11_stop_observations.py`; `load_month()` now takes a transaction-scoped advisory lock (727001), so a concurrent loader fails fast instead of double-loading a month.
+- Cron: `scripts/cron_backfill_stop_observations.sh`, installed in the user crontab at 03:00 daily (`flock` on `/tmp/batis_stop_obs.lock`, 6 h timeout, log `backend/logs/backfill_stop_observations.log`). Each month adds about 10 GB to the DB (20 GB for Sep+Oct). 749 GB free.
+- Tests: 219 backend (+2).
+
 ### Added: System Status dashboard (migration 012)
 - Tables `api_call_log` and `job_runs`; helper `app/core/run_log.py` (`tracked_get`, `job_run`, `prune_run_log`). Every outbound `requests.get` in the 511, Oakland, Census and alerts loaders now goes through `tracked_get` (stores host + path, status, latency, error; never the query string, so API keys cannot reach the table).
 - Jobs recorded: `rt_ingestor`, `baseline_predictor`, `embed_pipeline`, `stop_observations_load`, `etl_run_data_jobs`.

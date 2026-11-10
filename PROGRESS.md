@@ -7,7 +7,7 @@ Complete inventory of every feature, endpoint, component, and data pipeline in B
 
 ## Current status (2026-11-10)
 
-Open tasks: (4) RT ingestion fixed and verified with one live poll; still to do: keep the ingestor running (uvicorn or `python -m app.workers.run_rt_ingestor`) to accumulate data, then rebuild snapshots/headways/predictions; (5) DONE: spatial `transfer_reliability` with a user-selectable radius (migration 011); (6) DONE: pgvector image + embeddings loaded (Ollama model still needs pulling or OLLAMA_MODEL set); (7) 12-month `stop_observations` backfill; (8) DONE (docs corrected), still: rotate leaked 511 key.
+Open tasks: (4) RT ingestion fixed and verified with one live poll; still to do: keep the ingestor running (uvicorn or `python -m app.workers.run_rt_ingestor`) to accumulate data, then rebuild snapshots/headways/predictions; (5) DONE: spatial `transfer_reliability` with a user-selectable radius (migration 011); (6) DONE: pgvector image + embeddings loaded (Ollama model still needs pulling or OLLAMA_MODEL set); (7) daily backfill cron installed (one month per day, 12 months back), first month loading; (8) DONE (docs corrected), still: rotate leaked 511 key.
 Done today: System Status dashboard (Status tab, `/admin/*`, migration 012), surrogate-key commit, Berkeley removal, synthetic ops data removed and purged. Reliability, Crowding, Demand and Bunching sections now have no data until live RT fills `ops_trip_events`. See `CHANGELOG.md`.
 
 ---

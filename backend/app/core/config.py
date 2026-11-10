@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     status_rt_stale_minutes: int = 15
     status_job_stale_minutes: int = 120
 
+    # Daily stop_observations backfill (cron): load this many missing months per run,
+    # newest first, never older than max_months_back. Raise these to deepen history.
+    stop_obs_backfill_months_per_run: int = 1
+    stop_obs_backfill_max_months_back: int = 12
+
     # Cross-agency transfers are matched spatially. Links are stored up to the largest
     # radius and the user picks one (<= max) at read time.
     transfer_radii_m: list[int] = [50, 100, 150, 200, 300, 400]
