@@ -14,6 +14,7 @@ download. Per-month idempotent, so retries are safe.
 """
 from __future__ import annotations
 
+import logging
 import sys
 
 from app.db import get_engine
@@ -23,6 +24,7 @@ from app.services.five11_stop_observations import backfill_last_n_months, backfi
 def main() -> int:
     from app.core.redact import install_redaction
     install_redaction()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     with get_engine().begin() as conn:
         if len(sys.argv) > 1:
             n = int(sys.argv[1])

@@ -26,3 +26,50 @@
 .status-err { color: var(--color-critical); word-break: break-word; }
 .status-toolbar { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; }
 .status-scroll { overflow-x: auto; }
+
+/* ── Activity cards ── */
+.act-category { margin: var(--space-4) 0 var(--space-2); font-size: var(--text-sm); color: var(--color-fg-2); text-transform: uppercase; letter-spacing: .06em; }
+.act-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-3); }
+.act-card { text-align: left; background: var(--color-bg-1); border: 1px solid var(--color-border); border-radius: var(--radius-3);
+  padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-2); cursor: pointer; color: var(--color-fg-1); font: inherit; }
+.act-card:hover, .act-card:focus-visible { border-color: var(--color-brand); outline: none; }
+.act-card--selected { border-color: var(--color-brand); background: var(--color-bg-2); }
+.act-card__head { display: flex; gap: var(--space-2); align-items: center; }
+.act-card__title { font-weight: 600; color: var(--color-fg-0); flex: 1; }
+.act-card__headline { font-size: var(--text-sm); color: var(--color-fg-2); word-break: break-word; min-height: 2.4em; }
+.act-card__metrics { display: flex; gap: var(--space-4); flex-wrap: wrap; }
+.act-metric { display: flex; flex-direction: column; }
+.act-metric__v { font-weight: 600; color: var(--color-fg-0); }
+.act-metric__l { font-size: 11px; color: var(--color-fg-3); }
+.act-card__foot { font-size: 11px; color: var(--color-fg-3); }
+.act-pill { font-size: 11px; padding: 1px 8px; border-radius: 10px; background: var(--color-bg-2); color: var(--color-fg-2); }
+.act-pill--ok { color: var(--color-success); } .act-pill--warn { color: var(--color-warn); }
+.act-pill--error { color: var(--color-critical); } .act-pill--running { color: var(--color-info); }
+.status-dot--running { background: var(--color-info); animation: act-pulse 1.4s ease-in-out infinite; }
+.status-dot--idle { background: var(--color-fg-3); }
+@keyframes act-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .status-dot--running { animation: none; } }
+.act-bar { height: 8px; background: var(--color-bg-2); border-radius: 4px; overflow: hidden; }
+.act-bar__fill { height: 100%; background: var(--color-info); transition: width .4s ease; }
+.act-bar__fill--indeterminate { width: 35%; animation: act-slide 1.4s linear infinite; }
+@keyframes act-slide { from { margin-left: -35%; } to { margin-left: 100%; } }
+.act-bar__label { font-size: 11px; color: var(--color-fg-2); }
+
+/* ── Detail drawer ── */
+.act-backdrop { position: fixed; inset: 0; background: var(--color-overlay); z-index: 40; }
+.act-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(760px, 100vw); background: var(--color-bg-0);
+  border-left: 1px solid var(--color-border); z-index: 41; display: flex; flex-direction: column; }
+.act-drawer__head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4); border-bottom: 1px solid var(--color-border); }
+.act-drawer__title { font-size: var(--text-lg, 18px); font-weight: 600; color: var(--color-fg-0); flex: 1; }
+.act-tabs { display: flex; gap: 2px; padding: 0 var(--space-4); border-bottom: 1px solid var(--color-border); overflow-x: auto; }
+.act-tab { background: none; border: none; border-bottom: 2px solid transparent; padding: var(--space-2) var(--space-3);
+  color: var(--color-fg-2); cursor: pointer; font: inherit; white-space: nowrap; }
+.act-tab[aria-selected="true"] { color: var(--color-fg-0); border-bottom-color: var(--color-brand); }
+.act-tab__badge { margin-left: 4px; font-size: 11px; background: var(--color-critical); color: #fff; border-radius: 8px; padding: 0 6px; }
+.act-drawer__body { padding: var(--space-4); overflow: auto; flex: 1; display: flex; flex-direction: column; gap: var(--space-4); }
+.act-kv { display: grid; grid-template-columns: 150px 1fr; gap: 4px var(--space-3); font-size: var(--text-sm); }
+.act-kv dt { color: var(--color-fg-3); } .act-kv dd { margin: 0; color: var(--color-fg-1); word-break: break-word; }
+.act-pre { background: var(--color-bg-1); border: 1px solid var(--color-border); border-radius: var(--radius-3); padding: var(--space-3);
+  font-size: 12px; line-height: 1.45; overflow: auto; max-height: 60vh; white-space: pre-wrap; word-break: break-word; margin: 0; }
+.act-steps { margin: 0; padding-left: 1.2em; color: var(--color-fg-1); font-size: var(--text-sm); }
+.act-chip { display: inline-block; background: var(--color-bg-2); border-radius: 4px; padding: 0 6px; margin: 1px 4px 1px 0; font-size: 11px; }

@@ -19,7 +19,7 @@ from typing import Any
 import certifi
 import pandas as pd
 import requests
-from app.core.run_log import job_run, tracked_get
+from app.core.run_log import job_run, report_progress, tracked_get
 from psycopg2.extras import execute_values
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
@@ -111,11 +111,17 @@ def download_month(year_month: str) -> io.BytesIO:
     resp = tracked_get(url, timeout=300, stream=True, verify=certifi.where())
     resp.raise_for_status()
 
+    try:
+        size = int(resp.headers.get("Content-Length") or 0) or None
+    except (TypeError, ValueError):
+        size = None
+    report_progress(force=True, phase="downloading", bytes_done=0, bytes_total=size)
     buf = io.BytesIO()
     total = 0
     for chunk in resp.iter_content(chunk_size=1024 * 1024):
         buf.write(chunk)
         total += len(chunk)
+        report_progress(phase="downloading", bytes_done=total, bytes_total=size)
     buf.seek(0)
     log.info("[stop-obs] Downloaded %s — %.1f MB", year_month, total / 1_048_576)
     return buf
@@ -307,6 +313,7 @@ def _load_month_impl(year_month: str, conn: Connection) -> int:
         return 0
 
     first_day, last_day = _month_date_range(year_month)
+    report_progress(force=True, month=year_month, phase="preparing")
 
     # Clear any partial data from a previous failed attempt
     deleted = conn.execute(
@@ -320,6 +327,7 @@ def _load_month_impl(year_month: str, conn: Connection) -> int:
         log.info("[stop-obs] Cleared %d stale rows for %s", deleted, year_month)
 
     zip_bytes = download_month(year_month)
+    report_progress(force=True, phase="parsing and inserting", rows_inserted=0)
 
     with zipfile.ZipFile(zip_bytes) as zf:
         entry = _find_stop_obs_entry(zf)
@@ -362,6 +370,8 @@ def _load_month_impl(year_month: str, conn: Connection) -> int:
 
                 n = _batch_insert(raw_cur, df[list(_INSERT_COLS)])
                 total_inserted += n
+                report_progress(phase="parsing and inserting", rows_inserted=total_inserted,
+                                chunks_done=chunk_num + 1)
 
                 if chunk_num % 10 == 0:
                     log.info(
@@ -370,6 +380,7 @@ def _load_month_impl(year_month: str, conn: Connection) -> int:
                     )
 
     # Resolve the surrogate stop key (migration 010) for the month just loaded.
+    report_progress(force=True, phase="resolving stop keys", rows_inserted=total_inserted)
     resolved = conn.execute(
         text(
             "UPDATE stop_observations so SET stop_pk = g.stop_pk "

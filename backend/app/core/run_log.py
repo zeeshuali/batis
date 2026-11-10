@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
 from urllib.parse import urlsplit
 
 import requests
@@ -33,6 +34,17 @@ def _endpoint(url: str) -> str:
     """Host + path only. The query string (api_key!) is never stored."""
     p = urlsplit(url)
     return f"{p.hostname or ''}{p.path}"[:300]
+
+
+def current_job() -> "JobRun | None":
+    return _current_job.get()
+
+
+def report_progress(force: bool = False, **fields) -> None:
+    """Report progress for the job running in this context (no-op outside job_run)."""
+    job = _current_job.get()
+    if job is not None:
+        job.progress(force=force, **fields)
 
 
 def log_api_call(url: str, *, status_code: int | None, ok: bool,
@@ -70,13 +82,36 @@ def tracked_get(url: str, **kwargs) -> requests.Response:
     return resp
 
 
+_current_job: ContextVar["JobRun | None"] = ContextVar("batis_current_job", default=None)
+_PROGRESS_MIN_INTERVAL_S = 3.0
+
+
 class JobRun:
     """Handle yielded by job_run(); call .set(rows=..., key=value) to add results."""
 
-    def __init__(self) -> None:
+    def __init__(self, run_id=None) -> None:
+        self.run_id = run_id
         self.rows: int | None = None
         self.details: dict = {}
         self.error: str | None = None
+        self._last_flush = 0.0
+
+    def progress(self, force: bool = False, **fields) -> None:
+        """Merge live progress into details and write it to the DB right away (throttled),
+        so the dashboard can show a running job. Best effort."""
+        self.details.update(fields)
+        now = time.monotonic()
+        if self.run_id is None or (not force and now - self._last_flush < _PROGRESS_MIN_INTERVAL_S):
+            return
+        self._last_flush = now
+        try:
+            from app.db import get_engine
+            with get_engine().begin() as conn:
+                conn.execute(
+                    text("UPDATE job_runs SET details = CAST(:d AS jsonb) WHERE id = :id"),
+                    {"d": json.dumps(self.details, default=str), "id": self.run_id})
+        except Exception:
+            pass
 
     def fail(self, message: str) -> None:
         """Mark the run as failed without raising (e.g. partial errors reported in a result)."""
@@ -103,7 +138,8 @@ def job_run(job: str):
             ).scalar()
     except Exception:
         pass
-    handle = JobRun()
+    handle = JobRun(run_id)
+    token = _current_job.set(handle)
     try:
         yield handle
     except Exception as exc:
@@ -114,6 +150,8 @@ def job_run(job: str):
             _finish(run_id, "error", handle, redact_secrets(handle.error)[:1000])
         else:
             _finish(run_id, "ok", handle, None)
+    finally:
+        _current_job.reset(token)
 
 
 def _finish(run_id, status: str, handle: JobRun, error: str | None) -> None:

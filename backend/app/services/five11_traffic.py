@@ -286,17 +286,26 @@ def run_traffic_loop(interval_seconds: int = 300, stop_event=None) -> None:
     while not (stop_event and stop_event.is_set()):
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
 
-        for label, loader in [
-            ("events",     load_traffic_events),
-            ("work_zones", load_work_zones),
-            ("toll_rates", load_toll_rates),
-        ]:
-            try:
-                with engine.begin() as conn:
-                    n = loader(conn)
-                print(f"[traffic] {label}={n} at {ts}", flush=True)
-            except Exception as exc:
-                print(f"[traffic] {label} error: {exc}", flush=True)
+        from app.core.run_log import job_run
+        with job_run("traffic_loop") as jr:
+            counts: dict = {}
+            errors: list[str] = []
+            for label, loader in [
+                ("events",     load_traffic_events),
+                ("work_zones", load_work_zones),
+                ("toll_rates", load_toll_rates),
+            ]:
+                try:
+                    with engine.begin() as conn:
+                        n = loader(conn)
+                    counts[label] = n
+                    print(f"[traffic] {label}={n} at {ts}", flush=True)
+                except Exception as exc:
+                    errors.append(f"{label}: {exc}")
+                    print(f"[traffic] {label} error: {exc}", flush=True)
+            jr.set(rows=sum(v for v in counts.values() if isinstance(v, int)), **counts)
+            if errors:
+                jr.fail("; ".join(errors))
 
         for _ in range(interval_seconds):
             if stop_event and stop_event.is_set():

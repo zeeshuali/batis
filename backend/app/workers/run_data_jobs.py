@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import date, timedelta
+import builtins
+import re
+from datetime import date, datetime, timedelta, timezone
 
 # Ensure backend app is on path when run as script
 if __name__ == "__main__":
@@ -45,12 +47,50 @@ def _parse_date(s: str | None) -> date | None:
         return None
 
 
+_STEP_RE = re.compile(r"\s*(?:\[ETL\]\s*)?(\d+(?:\.\d+)?)/20\s+(.*)")
+
+
+def print(*args, **kwargs) -> None:  # noqa: A001 - module-level shadow of the builtin
+    """Behaves like print, and also records ETL step progress for the Status dashboard."""
+    builtins.print(*args, **kwargs)
+    try:
+        _record_step(" ".join(str(a) for a in args))
+    except Exception:
+        pass
+
+
+def _record_step(msg: str) -> None:
+    from app.core.redact import redact_secrets
+    from app.core.run_log import current_job
+    job = current_job()
+    if job is None:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    steps = job.details.setdefault("steps", [])
+    m = _STEP_RE.match(msg)
+    if m:
+        if steps and not steps[-1].get("finished_at"):
+            steps[-1]["finished_at"] = now
+        steps.append({"n": m.group(1), "title": m.group(2).strip().rstrip(".").strip(),
+                      "started_at": now, "finished_at": None, "notes": []})
+        job.progress(force=True, current_step=f"{m.group(1)}/20", steps=steps)
+    elif steps and any(w in msg.lower() for w in ("failed", "error", "skipping", "skipped")):
+        steps[-1]["notes"].append(redact_secrets(msg.strip())[:240])
+        job.progress(force=True, steps=steps)
+
+
 def main() -> None:
     from app.core.redact import install_redaction
     from app.core.run_log import job_run
     install_redaction()
-    with job_run("etl_run_data_jobs"):
-        _main()
+    with job_run("etl_run_data_jobs") as jr:
+        try:
+            _main()
+        finally:
+            steps = jr.details.get("steps") or []
+            if steps and not steps[-1].get("finished_at"):
+                steps[-1]["finished_at"] = datetime.now(timezone.utc).isoformat()
+            jr.progress(force=True, steps=steps)
 
 
 def _main() -> None:

@@ -4,6 +4,14 @@ Newest first. Update this file (and PROGRESS.md and memory) after every change.
 
 ## 2026-11-10
 
+### Changed: Status tab is now one card per backend activity, with drill-down
+- New `app/services/activities.py` (catalog of 14 activities in 4 categories: Ingestion, Processing, External APIs, Infrastructure) and endpoints `GET /admin/activities` (cards) and `GET /admin/activities/{key}` (full breakdown). Each card shows status (ok, warn, error, running, idle), headline, metrics, a progress bar, schedule and next run. Clicking a card opens a panel with tabs: Overview, Progress, Runs, API calls, Data, Live queries (database), Service (Ollama), Errors, Config, Logs.
+- Live progress: `job_run(...)` handles now have `.progress(...)` and `report_progress(...)` (writes `job_runs.details` immediately, throttled to every 3 s). The stop_observations loader reports phase, MB downloaded and rows inserted, so the backfill card shows e.g. "2026-08: parsing and inserting (6,500,000 rows), about 25% of a typical month" plus "2 of 12 months loaded". Its Progress tab lists every month in range (loaded, loading, waiting).
+- ETL steps are recorded per step (title, duration, notes for failed or skipped steps). New job runs: `traffic_loop`, `transfer_reliability_compute`.
+- Scheduler card reads the user's crontab (BATIS lines) and shows the next run. Database card shows size, connections, largest tables and live queries.
+- The backfill worker now logs INFO lines to its log file.
+- Tests: 225 backend, 115 frontend.
+
 ### Added: daily stop_observations backfill (task 7)
 - `python -m app.workers.backfill_stop_observations` with no argument is now one small step: it loads the newest missing month, going back at most 12 months (`stop_obs_backfill_months_per_run`=1, `stop_obs_backfill_max_months_back`=12 in `config.py`). With nothing left it exits 0. `... N` keeps the old behaviour (N newest missing months).
 - `backfill_step()` in `five11_stop_observations.py`; `load_month()` now takes a transaction-scoped advisory lock (727001), so a concurrent loader fails fast instead of double-loading a month.

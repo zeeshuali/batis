@@ -151,6 +151,23 @@ def admin_status(conn: Connection = Depends(get_conn)):
     return get_system_status(conn)
 
 
+@app.get("/admin/activities", dependencies=[Depends(api_key_dependency)])
+def admin_activities(conn: Connection = Depends(get_conn)):
+    """One card per backend activity (ingestors, loaders, schedulers, external APIs, database)."""
+    from app.services.activities import list_activities
+    return list_activities(conn)
+
+
+@app.get("/admin/activities/{key}", dependencies=[Depends(api_key_dependency)])
+def admin_activity_detail(key: str, conn: Connection = Depends(get_conn)):
+    """Full breakdown of one activity: overview, progress, runs, API calls, data, errors, config, logs."""
+    from app.services.activities import get_activity_detail
+    detail = get_activity_detail(conn, key)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Unknown activity '{key}'")
+    return detail
+
+
 @app.get("/admin/api-calls", dependencies=[Depends(api_key_dependency)])
 def admin_api_calls(
     source: Optional[str] = Query(default=None),

@@ -69,6 +69,15 @@ def compute_transfer_reliability(
     The window is [end_date - days, end_date]; end_date defaults to the newest
     service_date found in stop_observations / ops_trip_events.
     """
+    from app.core.run_log import job_run
+    with job_run("transfer_reliability_compute") as jr:
+        n = _compute_transfer_reliability(conn, days=days, end_date=end_date,
+                                          give_up_seconds=give_up_seconds, refresh_links=refresh_links)
+        jr.set(rows=n, days=days)
+        return n
+
+
+def _compute_transfer_reliability(conn, *, days, end_date, give_up_seconds, refresh_links) -> int:
     s = get_settings()
     if refresh_links:
         refresh_stop_transfer_links(conn)
