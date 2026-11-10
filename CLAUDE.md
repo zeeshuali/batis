@@ -107,7 +107,7 @@ frontend test substrate that StopDrawer currently lacks.
 - **VIOLATION to remove (see rule 9, no synthetic data):** `ops_trip_events` (82,416 rows) was seeded from the static schedule with random delays for agency `3D` only, and `rt_vehicle_positions_raw` is empty. Delay/bunching/demand/crowding outputs derived from it are not real. Fix: remove the seed fallback, purge those rows and derived tables, and rebuild from the RT ingestor and `stop_observations`.
 - `transfer_reliability` is empty by design until it is reworked to match stops spatially.
 - **pgvector is not installed** in the `postgis/postgis:16` image, so `ai_embeddings` does not exist and the AI assistant's RAG is inactive.
-- Berkeley crime data fetch returns 403 (skipped); only Oakland incidents feed safety scores.
+- Safety scores use Oakland incidents only (the Berkeley fetch was removed 2026-11-10; it is out of scope).
 - Backup taken before migration 010: `~/batis-backups/pre-010-*.dump` (all tables except stop_observations data).
 - Rebuild order: `docker compose up -d postgres` → apply `sql/schema.sql` → `python -m app.workers.run_data_jobs`. For a DB created before migration 010 apply `sql/migrations/010_stop_surrogate_key.sql`, then `ALTER TABLE gtfs_stop_times VALIDATE CONSTRAINT gtfs_stop_times_stop_pk_fkey;`.
 - Logs: worker entry points and the API call `app.core.redact.install_redaction()` so `api_key=`/`token=` values are scrubbed from stdout/stderr/logging (requests puts the full URL in HTTPError text).

@@ -22,10 +22,6 @@ OAKLAND_CRIME_URL = "https://data.oaklandca.gov/resource/ppgh-7dqv.json"
 # https://data.oaklandca.gov/Transportation/Oakland-Traffic-Collision-Data/ym6k-rx7a
 OAKLAND_COLLISION_URL = "https://data.oaklandca.gov/resource/ym6k-rx7a.json"
 
-# Berkeley Police Department crime data
-# https://data.cityofberkeley.info/Public-Safety/Berkeley-PD-UCR-Annual-Part-I-Crimes/s24d-wsnp
-BERKELEY_CRIME_URL = "https://data.cityofberkeley.info/resource/s24d-wsnp.json"
-
 _PAGE_SIZE = 1000
 _MAX_PAGES = 50
 
@@ -151,38 +147,6 @@ def _load_collision_incidents(conn: Connection) -> int:
     return len(incident_rows)
 
 
-def _load_berkeley_crime_incidents(conn: Connection, days_back: int) -> int:
-    since = (datetime.now(timezone.utc) - timedelta(days=days_back)).strftime("%Y-%m-%dT%H:%M:%S")
-    rows = _fetch_socrata_all(BERKELEY_CRIME_URL, where=f"eventdt > '{since}'")
-    if not rows:
-        return 0
-
-    incident_rows = []
-    for r in rows:
-        coords = _extract_coords(r)
-        if coords is None:
-            continue
-        lat, lon = coords
-        incident_rows.append({
-            "source": "berkeley_crime",
-            "incident_type": "crime",
-            "occurred_at": _parse_ts(r, "eventdt", "datetime", "date"),
-            "severity": 1,
-            "lat": lat,
-            "lon": lon,
-            "properties": json.dumps({
-                "description": r.get("offense", r.get("description", "")),
-                "crimetype": r.get("offense", ""),
-            }),
-        })
-
-    if not incident_rows:
-        return 0
-
-    _bulk_insert_incidents(conn, incident_rows)
-    return len(incident_rows)
-
-
 def _bulk_insert_incidents(conn: Connection, rows: list[dict]) -> None:
     conn.execute(
         text(
@@ -208,7 +172,7 @@ def _run_load(conn: Connection, days_back: int) -> None:
     conn.execute(
         text(
             "DELETE FROM safety_incidents_raw "
-            "WHERE source IN ('oakland_crime_watch', 'oakland_collisions', 'berkeley_crime')"
+            "WHERE source IN ('oakland_crime_watch', 'oakland_collisions')"
         )
     )
 
@@ -224,17 +188,10 @@ def _run_load(conn: Connection, days_back: int) -> None:
     except Exception as exc:
         logger.error("Oakland collision fetch failed (skipping): %s", exc)
 
-    berkeley_count = 0
-    try:
-        berkeley_count = _load_berkeley_crime_incidents(conn, days_back=days_back)
-    except Exception as exc:
-        logger.error("Berkeley crime fetch failed (skipping): %s", exc)
-
     logger.info(
-        "Loaded %d crime incidents, %d collision incidents, %d Berkeley crime incidents.",
+        "Loaded %d crime incidents, %d collision incidents.",
         crime_count,
         collision_count,
-        berkeley_count,
     )
 
 
@@ -243,13 +200,12 @@ def load_safety_incidents(
     conn: Optional[Connection] = None,
 ) -> None:
     """
-    Load crime and collision data from Oakland's and Berkeley's open data portals
+    Load crime and collision data from Oakland's open data portal
     into safety_incidents_raw, replacing previously loaded records from the same sources.
 
     Data sources (public Socrata APIs, no key required):
     - Oakland Crime Watch (ppgh-7dqv)
     - Oakland Traffic Collision Data (ym6k-rx7a)
-    - Berkeley PD crime data (s24d-wsnp)
     """
     if conn is None:
         with get_engine().begin() as _conn:
