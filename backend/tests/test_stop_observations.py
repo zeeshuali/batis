@@ -309,3 +309,25 @@ def test_concurrent_load_fails_fast_instead_of_double_loading(db_conn: Connectio
             with other.begin():
                 with pytest.raises(RuntimeError, match="already running"):
                     load_month("2026-01", other)
+
+
+def test_load_month_resolves_stop_pk_during_insert(db_conn: Connection):
+    """stop_pk is filled by the insert itself (not a later UPDATE) and unknown stops stay NULL."""
+    with db_conn.begin():
+        db_conn.execute(text("""
+            INSERT INTO gtfs_stops (stop_id, agency_id, stop_name, stop_lat, stop_lon, geom)
+            VALUES ('S001', 'AC', 'known', 37.8, -122.2, ST_SetSRID(ST_MakePoint(-122.2, 37.8), 4326))
+            ON CONFLICT (agency_id, stop_id) DO NOTHING"""))
+    rows_in = [_SYNTHETIC_ROWS[0], {**_SYNTHETIC_ROWS[0], "trip_id": "T9", "stop_id": "S002"}]
+    rows_in[1]["stop_id"] = "ZZ-UNKNOWN"
+    with patch("app.services.five11_stop_observations.download_month",
+               side_effect=lambda ym: _make_synthetic_zip(rows_in)):
+        with db_conn.begin():
+            load_missing_months(db_conn, months_back=1)
+    rows = db_conn.execute(text(
+        "SELECT stop_id, stop_pk IS NOT NULL AS resolved FROM stop_observations ORDER BY stop_id")).all()
+    by = {}
+    for sid, ok in rows:
+        by.setdefault(sid, set()).add(ok)
+    assert by["S001"] == {True}
+    assert by["ZZ-UNKNOWN"] == {False}  # not in gtfs_stops

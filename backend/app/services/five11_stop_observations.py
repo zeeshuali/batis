@@ -273,7 +273,8 @@ def _batch_insert(raw_cur: Any, df: pd.DataFrame) -> int:
     if df.empty:
         return 0
 
-    cols = list(_INSERT_COLS)
+    # Base columns, plus stop_pk when the caller resolved it (see _load_month_impl).
+    cols = list(_INSERT_COLS) + (["stop_pk"] if "stop_pk" in df.columns else [])
     # NaN/NaT → None for psycopg2
     clean = df[cols].astype(object).where(df[cols].notna(), other=None)
     records = [tuple(row) for row in clean.itertuples(index=False, name=None)]
@@ -337,6 +338,12 @@ def _load_month_impl(year_month: str, conn: Connection) -> int:
             total_inserted = 0
             mapping: dict[str, str] | None = None
             raw_cur = conn.connection.cursor()
+            # Resolve stop_pk while inserting. A single UPDATE afterwards rewrote every row
+            # and all 7 indexes (about 15 minutes for one month).
+            stop_pk_by_key = {
+                (r[0], r[1]): r[2]
+                for r in conn.execute(text("SELECT agency_id, stop_id, stop_pk FROM gtfs_stops"))
+            }
 
             for chunk_num, chunk in enumerate(reader):
                 if mapping is None:
@@ -368,7 +375,11 @@ def _load_month_impl(year_month: str, conn: Connection) -> int:
                 if "observed_arrival" in mapping:
                     df["observed_arrival"] = _parse_arrival_col(df["observed_arrival"], date_series)
 
-                n = _batch_insert(raw_cur, df[list(_INSERT_COLS)])
+                batch = df[list(_INSERT_COLS)].copy()
+                batch["stop_pk"] = pd.Series(
+                    [stop_pk_by_key.get((a, s)) for a, s in zip(batch["agency_id"], batch["stop_id"])],
+                    index=batch.index, dtype=object)
+                n = _batch_insert(raw_cur, batch)
                 total_inserted += n
                 report_progress(phase="parsing and inserting", rows_inserted=total_inserted,
                                 chunks_done=chunk_num + 1)

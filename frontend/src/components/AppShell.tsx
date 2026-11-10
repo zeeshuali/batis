@@ -23,7 +23,7 @@ const TABS: { key: SectionKey; label: string }[] = [
   { key: "equity",     label: "Equity & Safety"   },
   { key: "benchmarks", label: "Benchmarks & Drift"},
   { key: "planning",   label: "Planning"          },
-  { key: "status",     label: "Status"            },
+  { key: "status",     label: "Backend"           },
 ];
 
 export const AppShell: React.FC = () => {

@@ -60,7 +60,7 @@ describe("AppShell", () => {
   it("renders brand, tabs, and filter bar", () => {
     render(wrap(<AppShell />));
     expect(screen.getByText("BATIS")).toBeInTheDocument();
-    ["Overview", "Operations", "Network", "Equity & Safety", "Benchmarks & Drift", "Status"].forEach(label => {
+    ["Overview", "Operations", "Network", "Equity & Safety", "Benchmarks & Drift", "Backend"].forEach(label => {
       expect(screen.getByRole("tab", { name: label })).toBeInTheDocument();
     });
     expect(screen.getByLabelText(/from/i)).toBeInTheDocument();

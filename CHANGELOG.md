@@ -4,6 +4,14 @@ Newest first. Update this file (and PROGRESS.md and memory) after every change.
 
 ## 2026-11-10
 
+### First backfill month loaded (task 7)
+- **2026-08 loaded: 25,768,104 rows, all 30 agencies, 99.6% with stop_pk.** First run took about 38 min, of which roughly 15 min was the closing `UPDATE ... SET stop_pk` that rewrote every row and all 7 indexes.
+- Fix: `_load_month_impl` now resolves `stop_pk` while inserting, from an in-memory map of `gtfs_stops`. The closing UPDATE remains only as a cheap fallback for stops missing from the map. Test added (226 backend).
+- stop_observations now covers 2026-08, 2026-09 and 2026-10. Nine months remain; cron loads one per night.
+
+### Dashboard discoverability
+- The tab is now labelled **Backend** (was Status): http://localhost:5173/#status. The API root (`/` and `/api/` through the Vite proxy) now returns a JSON pointer to the dashboard and the status endpoints. New setting `frontend_url`.
+
 ### Reviewed the Status tab in a real browser (Playwright screenshots, dark and light)
 - Fixed: the "Open issues" panel was 280 px tall when nearly empty (`.section__panel` min-height), live-query "running for" could be negative (now `clock_timestamp()`), Progress tab hidden for activities with nothing to show (database, scheduler, Ollama, Oakland, Census), null values removed from run detail chips.
 - Fixed app-wide: `styles.css` hard-codes a dark body background, so in the light theme the main area stayed dark behind light cards. `.shell` now paints with `--color-bg-0`.

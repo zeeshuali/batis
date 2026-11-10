@@ -69,6 +69,8 @@ class Settings(BaseSettings):
     embed_model_name: str = "all-MiniLM-L6-v2"
 
     # CORS
+    # Where the dashboard UI is served (used in the API root message).
+    frontend_url: str = "http://localhost:5173"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     class Config:

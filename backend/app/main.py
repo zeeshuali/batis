@@ -195,7 +195,13 @@ def admin_job_runs(
 
 @app.get("/")
 def root():
-    return {"message": "Bay Area Transit Intelligence API"}
+    s = get_settings()
+    return {
+        "message": "Bay Area Transit Intelligence API",
+        "dashboard": f"{s.frontend_url}/#status",
+        "api_docs": "/docs",
+        "status_endpoints": ["/admin/status", "/admin/activities", "/admin/job-runs", "/admin/api-calls"],
+    }
 
 
 # ── Agencies catalog ──────────────────────────────────────────────────────────
