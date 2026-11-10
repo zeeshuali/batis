@@ -1,6 +1,8 @@
 # BATIS — Claude Project Memory
 _Last updated: 2026-11-10_
 
+**Always, at the end of every work session:** update `CHANGELOG.md`, `PROGRESS.md` and memory (user standing instruction, 2026-11-10).
+
 This file is Claude's persistent memory for the BATIS project. Read this at the start of every session before touching any code.
 
 ---
@@ -104,7 +106,7 @@ frontend test substrate that StopDrawer currently lacks.
 - `backend/.env` `DATABASE_URL` points at the persistent DB on **5434**. Schema + migrations 001–010 are applied.
 - Loaded: 621 routes, **20,260 stops** (185 stop_ids are shared by >1 agency), 90k trips, 3.17M stop_times (29 of 30 monitored agencies; **CR = Santa Cruz METRO has no 511 GTFS feed** and is reported as skipped), 1,772 census tracts + ambulatory, 2,629 fare products, 2,350 coverage cells, fare_burden, service_delivery_gap (688), per-stop features/safety/ADA gap (20,260 each).
 - `stop_observations`: **52.4M rows, 2026-09 and 2026-10** (about 0.3% have no stop_pk because the stop is missing from the feed; agency EM is unmonitored). The 12-month backfill (`python -m app.workers.backfill_stop_observations 12`, multi-hour, 60 req/hr) has not been run. Don't run two ETLs at once: the month-already-loaded check is not atomic and doubled this table once (fixed by deleting the second batch).
-- **VIOLATION to remove (see rule 9, no synthetic data):** `ops_trip_events` (82,416 rows) was seeded from the static schedule with random delays for agency `3D` only, and `rt_vehicle_positions_raw` is empty. Delay/bunching/demand/crowding outputs derived from it are not real. Fix: remove the seed fallback, purge those rows and derived tables, and rebuild from the RT ingestor and `stop_observations`.
+- **Synthetic ops data removed (2026-11-10):** `seed_from_static.py` and its call in `run_data_jobs.py` are deleted. `ops_trip_events`, `trip_stop_snapshots`, `ops_headways`, `delay_predictions`, `bunching_predictions`, `demand_forecasts`, `crowding_predictions` were truncated (all 0 rows; backup `~/batis-backups/pre-synthetic-purge-20261110.dump`). They stay empty until `run_rt_ingestor` fills `ops_trip_events` from live 511 data. `rt_vehicle_positions_raw` is still empty: root cause not yet diagnosed (task 4). Delay/bunching/demand/crowding UI shows empty states until then.
 - `transfer_reliability` is empty by design until it is reworked to match stops spatially.
 - **pgvector is not installed** in the `postgis/postgis:16` image, so `ai_embeddings` does not exist and the AI assistant's RAG is inactive.
 - Safety scores use Oakland incidents only (the Berkeley fetch was removed 2026-11-10; it is out of scope).
@@ -239,4 +241,4 @@ VITE_API_KEY=...                   # X-API-Key for frontend requests
 6. **Never add hardcoded values** — all URLs, thresholds, model names go in config.py.
 7. **Add `sentence-transformers` and `httpx` to requirements.txt** if touching the AI pipeline.
 8. When adding new FastAPI routes, place more specific paths (e.g., `/routes/compare`) BEFORE parameterised ones (e.g., `/routes/{route_id}/geo`).
-9. **NEVER use synthetic data. Always use live data.** No seeded, random, mock or placeholder rows in the database, ETL, or UI. If live data is missing from the DB, read the logs of the step that should have filled it (ETL output, loader errors, API responses, `docker logs batis-postgres-1`), find the root cause, fix it, re-run, and verify row counts and sources. An honest empty/"no data" state beats fake numbers. Only `backend/tests/` fixtures in the throwaway test DB may use hand-made rows. (Known violation to remove: `app/services/seed_from_static.py`, called from `app/workers/run_data_jobs.py` when `ops_trip_events` is empty; it fills `ops_trip_events` with random delays for agency 3D.)
+9. **NEVER use synthetic data. Always use live data.** No seeded, random, mock or placeholder rows in the database, ETL, or UI. If live data is missing from the DB, read the logs of the step that should have filled it (ETL output, loader errors, API responses, `docker logs batis-postgres-1`), find the root cause, fix it, re-run, and verify row counts and sources. An honest empty/"no data" state beats fake numbers. Only `backend/tests/` fixtures in the throwaway test DB may use hand-made rows. (The previous violation, `seed_from_static.py`, was removed 2026-11-10.)

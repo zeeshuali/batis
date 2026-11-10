@@ -1,9 +1,14 @@
 # BATIS — Implementation Progress
-_Last updated: 2026-05-09_
+_Last updated: 2026-11-10_
 
 Complete inventory of every feature, endpoint, component, and data pipeline in BATIS — what works, what's broken, and what's missing.
 
 > ⚠️ **STALE (checked 2026-11-09):** this file was last written 2026-05-09, before Phase 0 (bug fixes), Sprints 4a–5c (transfers, fares, fare burden, service-delivery gap, ADA gap), and the multi-agency composite-key migration. Many 🔴/⚠️ rows below (e.g. safety `ST_DWithin`, `/routes/compare`) were fixed in Phase 0, and the API now has ~55 route decorators, not 29. Treat statuses as historical; see `CLAUDE.md` and `docs/superpowers/` for current state. A full re-audit needs a populated DB.
+
+## Current status (2026-11-10)
+
+Open tasks: (4) diagnose empty `rt_vehicle_positions_raw` and rebuild ops data from live feeds; (5) spatial `transfer_reliability`; (6) pgvector for RAG; (7) 12-month `stop_observations` backfill; (8) Vite proxy port, `BACKEND_API_KEY` in config, rotate leaked 511 key.
+Done today: surrogate-key commit, Berkeley removal, synthetic ops data removed and purged. Reliability, Crowding, Demand and Bunching sections now have no data until live RT fills `ops_trip_events`. See `CHANGELOG.md`.
 
 ---
 

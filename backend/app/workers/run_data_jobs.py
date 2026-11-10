@@ -33,7 +33,6 @@ from app.services.models_demand_crowding import (
 from app.services.safety_incidents_loader import load_safety_incidents
 from app.services.equity_loader import populate_equity_columns
 from app.services.safety_scoring import compute_stop_safety_scores
-from app.services.seed_from_static import seed_ops_from_static
 from app.services.five11_stop_observations import load_missing_months
 
 
@@ -93,19 +92,8 @@ def main() -> None:
         conn.execute(text("REFRESH MATERIALIZED VIEW stop_cell"))
     print("     stop_cell materialized view refreshed")
 
-    # Seed synthetic ops data from GTFS static when no RT data exists
-    with engine.connect() as chk:
-        rt_count = chk.execute(text("SELECT COUNT(*) FROM ops_trip_events")).scalar()
-    if rt_count == 0:
-        print("     No RT ops data found — seeding from GTFS static schedule...")
-        current = start_date
-        total_seeded = 0
-        while current <= end_date:
-            with engine.begin() as conn:
-                n = seed_ops_from_static(current, max_trips=300, conn=conn)
-                total_seeded += n
-            current += timedelta(days=1)
-        print(f"     Seeded {total_seeded} ops events across {(end_date - start_date).days + 1} days.")
+    # ops_trip_events is filled only from live 511 RT data (run_rt_ingestor) —
+    # never seeded from the static schedule (CLAUDE.md rule 9).
 
     print("1.5/20 Loading GTFS Fares v2 for monitored agencies...")
     try:
