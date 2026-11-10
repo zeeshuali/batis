@@ -68,3 +68,34 @@ class TestPlausibleDelayBound:
     @pytest.mark.parametrize("delta", [-7200, -600, -1, 0, 1, 60, 3600, 7200])
     def test_plausible_delays_should_be_kept(self, delta):
         assert abs(delta) <= _MAX_PLAUSIBLE_DELAY_SECONDS
+
+
+class TestProcessTripUpdatesSmoke:
+    """Regression: _process_trip_updates used `agency_id` before assigning it
+    (UnboundLocalError on every poll), so ops_trip_events never filled."""
+
+    def test_does_not_crash_and_resolves_agency_from_prefixed_route(self):
+        from unittest.mock import MagicMock
+
+        from google.transit import gtfs_realtime_pb2
+
+        from app.services.five11_rt_ingestor import _process_trip_updates
+
+        feed = gtfs_realtime_pb2.FeedMessage()
+        feed.header.gtfs_realtime_version = "2.0"
+        ent = feed.entity.add()
+        ent.id = "1"
+        ent.trip_update.trip.trip_id = "SF:T1"
+        ent.trip_update.trip.route_id = "SF:31"
+        stu = ent.trip_update.stop_time_update.add()
+        stu.stop_id = "SF:100"
+        stu.stop_sequence = 1
+        stu.arrival.delay = 60
+
+        conn = MagicMock()
+        conn.execute.return_value.mappings.return_value.all.return_value = []
+        assert _process_trip_updates(conn, feed) == 1
+        insert_rows = conn.execute.call_args_list[-1].args[1]
+        assert insert_rows[0]["agency_id"] == "SF"
+        assert insert_rows[0]["trip_id"] == "T1"
+        assert insert_rows[0]["stop_id"] == "100"

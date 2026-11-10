@@ -202,20 +202,20 @@ def _process_trip_updates(conn: Connection, feed: gtfs_realtime_pb2.FeedMessage)
     today = datetime.now(timezone.utc).astimezone(la_tz).date()
 
     updates: list[dict] = []
-    trip_ids: set[str] = set()
+    trip_ids: set[tuple[str, str]] = set()
 
     for entity in feed.entity:
         if not entity.HasField("trip_update"):
             continue
         tu = entity.trip_update
         trip_desc = tu.trip
+        # Resolve the agency from the raw (still prefixed) route_id first, then strip.
+        agency_id = _extract_agency_id(trip_desc, trip_desc.route_id or None)
         trip_id  = _strip_agency_prefix(trip_desc.trip_id  or None, agency_id)
         route_id = _strip_agency_prefix(trip_desc.route_id or None, agency_id)
         if not trip_id:
             continue
-        trip_ids.add(trip_id)
-
-        agency_id = _extract_agency_id(trip_desc, route_id)
+        trip_ids.add((agency_id, trip_id))
 
         service_date = today
         if trip_desc.start_date:
@@ -255,22 +255,22 @@ def _process_trip_updates(conn: Connection, feed: gtfs_realtime_pb2.FeedMessage)
         return 0
 
     # Batch-fetch scheduled arrivals for all trips in this feed
-    scheduled: dict[tuple[str, int], str] = {}
+    scheduled: dict[tuple[str, str, int], str] = {}
     if trip_ids:
         sched_rows = conn.execute(
             text(
-                "SELECT trip_id, stop_sequence, arrival_time FROM gtfs_stop_times "
-                "WHERE trip_id = ANY(:trip_ids)"
+                "SELECT agency_id, trip_id, stop_sequence, arrival_time FROM gtfs_stop_times "
+                "WHERE (agency_id, trip_id) IN (SELECT * FROM unnest(CAST(:aids AS text[]), CAST(:tids AS text[])))"
             ),
-            {"trip_ids": list(trip_ids)},
+            {"aids": [a for a, _ in trip_ids], "tids": [t for _, t in trip_ids]},
         ).mappings().all()
         for r in sched_rows:
             if r["stop_sequence"] is not None:
-                scheduled[(r["trip_id"], r["stop_sequence"])] = r["arrival_time"]
+                scheduled[(r["agency_id"], r["trip_id"], r["stop_sequence"])] = r["arrival_time"]
 
     final_rows: list[dict] = []
     for u in updates:
-        key = (u["trip_id"], u["stop_sequence"]) if u["stop_sequence"] is not None else None
+        key = (u["agency_id"], u["trip_id"], u["stop_sequence"]) if u["stop_sequence"] is not None else None
         sched_time_str = scheduled.get(key) if key else None
         scheduled_arrival = _parse_gtfs_time(u["service_date"], sched_time_str) if sched_time_str else None
 
@@ -311,15 +311,15 @@ def _process_trip_updates(conn: Connection, feed: gtfs_realtime_pb2.FeedMessage)
         return 0
 
     # Replace stop-level rows for each trip to handle repeated polling
-    trip_date_pairs = list({(r["service_date"], r["trip_id"]) for r in final_rows})
-    for sd, tid in trip_date_pairs:
+    trip_date_pairs = list({(r["agency_id"], r["service_date"], r["trip_id"]) for r in final_rows})
+    for aid, sd, tid in trip_date_pairs:
         conn.execute(
             text(
                 "DELETE FROM ops_trip_events "
-                "WHERE service_date = :service_date AND trip_id = :trip_id "
+                "WHERE agency_id = :agency_id AND service_date = :service_date AND trip_id = :trip_id "
                 "  AND stop_sequence IS NOT NULL"
             ),
-            {"service_date": sd, "trip_id": tid},
+            {"agency_id": aid, "service_date": sd, "trip_id": tid},
         )
 
     conn.execute(

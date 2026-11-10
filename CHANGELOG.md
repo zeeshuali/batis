@@ -4,6 +4,11 @@ Newest first. Update this file (and PROGRESS.md and memory) after every change.
 
 ## 2026-11-10
 
+### Fixed (live RT ingestion, task 4)
+- `rt_vehicle_positions_raw` was empty for three reasons: (1) `workers/run_rt_ingestor.py` imported the deprecated AC-only `gtfs_rt_ingestor`; it now runs `five11_rt_ingestor`. (2) `_process_trip_updates` read `agency_id` before assigning it, so every poll crashed (bug from e489084). (3) the API polled every 30s, 4x the 511 limit of 60 req/hr; the interval is now `five11_rt_poll_seconds` (180) in `config.py`. The ingestor only runs while uvicorn or the worker is running.
+- Trip-update schedule lookup and per-trip DELETE are now agency-aware (multi-agency JOIN rule).
+- Verified with one live poll: 1,237 vehicle positions and 32,117 trip-update rows, 23 agencies, real delays. Added a regression test (208 tests).
+
 ### Removed
 - `app/services/seed_from_static.py` and the seeding fallback in `run_data_jobs.py` (rule 9: no synthetic data).
 - Berkeley crime fetch from `safety_incidents_loader.py` (out of scope; dataset returned HTTP 403).

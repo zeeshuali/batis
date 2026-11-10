@@ -59,10 +59,10 @@ _stop_event = threading.Event()
 async def lifespan(app: FastAPI):
     _stop_event.clear()
 
-    # 511.org multi-agency RT ingestor — polls every 30s
+    # 511.org multi-agency RT ingestor — interval from settings (rate limit 60 req/hr)
     t_rt = threading.Thread(
         target=run_polling_loop,
-        kwargs={"poll_interval_seconds": 30, "stop_event": _stop_event},
+        kwargs={"poll_interval_seconds": get_settings().five11_rt_poll_seconds, "stop_event": _stop_event},
         daemon=True,
         name="five11-rt-ingestor",
     )

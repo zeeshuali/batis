@@ -7,7 +7,7 @@ Complete inventory of every feature, endpoint, component, and data pipeline in B
 
 ## Current status (2026-11-10)
 
-Open tasks: (4) diagnose empty `rt_vehicle_positions_raw` and rebuild ops data from live feeds; (5) spatial `transfer_reliability`; (6) pgvector for RAG; (7) 12-month `stop_observations` backfill; (8) Vite proxy port, `BACKEND_API_KEY` in config, rotate leaked 511 key.
+Open tasks: (4) RT ingestion fixed and verified with one live poll; still to do: keep the ingestor running (uvicorn or `python -m app.workers.run_rt_ingestor`) to accumulate data, then rebuild snapshots/headways/predictions; (5) spatial `transfer_reliability`; (6) pgvector for RAG; (7) 12-month `stop_observations` backfill; (8) Vite proxy port, `BACKEND_API_KEY` in config, rotate leaked 511 key.
 Done today: surrogate-key commit, Berkeley removal, synthetic ops data removed and purged. Reliability, Crowding, Demand and Bunching sections now have no data until live RT fills `ops_trip_events`. See `CHANGELOG.md`.
 
 ---

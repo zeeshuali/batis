@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     # (populated by five11_operators.run_operators_sync) — see Phase A-1.
     five11_api_key: str | None = None
     five11_base_url: str = "https://api.511.org"
+    # RT poll interval. Each cycle makes 2 requests (vehicles + trip updates) and the
+    # 511 limit is 60 req/hour shared with other jobs, so keep this >= 120.
+    five11_rt_poll_seconds: int = 180
 
     # Census TIGERweb — authoritative tract polygon REST service
     tigerweb_base_url: str = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/0/query"
