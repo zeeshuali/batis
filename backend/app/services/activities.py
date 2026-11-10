@@ -651,7 +651,9 @@ def get_activity_detail(conn: Connection, key: str) -> dict[str, Any] | None:
             progress["agencies_last_30_min"] = []
     elif key == "api_process":
         progress["threads"] = ctx["threads"]
-    sections["progress"] = progress
+    # Only show a Progress tab when there is something to show.
+    if (progress["current"] or len(progress) > 1):
+        sections["progress"] = progress
 
     # runs
     if act["jobs"]:
@@ -677,7 +679,7 @@ def get_activity_detail(conn: Connection, key: str) -> dict[str, Any] | None:
         sections["data"] = {"tables": [{"table": r["table"], "label": r["table"], "rows": max(0, r["est_rows"]),
                                         "size": r["size"], "latest": None, "note": "row count is an estimate"} for r in big]}
         active = conn.execute(text("""
-            SELECT pid, state, now() - query_start AS running_for, wait_event_type,
+            SELECT pid, state, clock_timestamp() - query_start AS running_for, wait_event_type,
                    LEFT(regexp_replace(query, '\\s+', ' ', 'g'), 220) AS query
             FROM pg_stat_activity
             WHERE datname = current_database() AND pid <> pg_backend_pid() AND state <> 'idle'

@@ -104,7 +104,7 @@ const ActivityCard: React.FC<{ card: Card; selected: boolean; onOpen: () => void
 
 const Chips: React.FC<{ obj: Record<string, unknown> | null }> = ({ obj }) => {
   if (!obj) return null;
-  const entries = Object.entries(obj).filter(([k]) => k !== "steps");
+  const entries = Object.entries(obj).filter(([k, v]) => k !== "steps" && v !== null && v !== undefined);
   return <>{entries.map(([k, v]) => <span key={k} className="act-chip">{k}: {typeof v === "object" ? JSON.stringify(v) : String(v)}</span>)}</>;
 };
 
@@ -362,7 +362,7 @@ export const Status: React.FC = () => {
   const attention = snap.checks.filter(c => c.status !== "ok");
 
   return (
-    <div className="section">
+    <div className="section status-page">
       <div className={`status-banner status-banner--${overall}`} data-testid="status-banner">
         <Dot level={overall} />
         <span className="status-banner__title">{LEVEL_LABEL[overall]}</span>
@@ -376,7 +376,7 @@ export const Status: React.FC = () => {
 
       {attention.length > 0 && (
         <div className="section__panel">
-          <h3 className="section__panel-title">Needs attention</h3>
+          <h3 className="section__panel-title">Open issues</h3>
           <div className="status-checks">
             {attention.map(c => (
               <div key={c.key} className="status-check"><Dot level={c.status} />

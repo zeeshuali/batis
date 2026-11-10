@@ -4,6 +4,11 @@ Newest first. Update this file (and PROGRESS.md and memory) after every change.
 
 ## 2026-11-10
 
+### Reviewed the Status tab in a real browser (Playwright screenshots, dark and light)
+- Fixed: the "Open issues" panel was 280 px tall when nearly empty (`.section__panel` min-height), live-query "running for" could be negative (now `clock_timestamp()`), Progress tab hidden for activities with nothing to show (database, scheduler, Ollama, Oakland, Census), null values removed from run detail chips.
+- Fixed app-wide: `styles.css` hard-codes a dark body background, so in the light theme the main area stayed dark behind light cards. `.shell` now paints with `--color-bg-0`.
+- No browser console errors on the Status tab. The API runs on 8001 for the Vite `/api` proxy.
+
 ### Changed: Status tab is now one card per backend activity, with drill-down
 - New `app/services/activities.py` (catalog of 14 activities in 4 categories: Ingestion, Processing, External APIs, Infrastructure) and endpoints `GET /admin/activities` (cards) and `GET /admin/activities/{key}` (full breakdown). Each card shows status (ok, warn, error, running, idle), headline, metrics, a progress bar, schedule and next run. Clicking a card opens a panel with tabs: Overview, Progress, Runs, API calls, Data, Live queries (database), Service (Ollama), Errors, Config, Logs.
 - Live progress: `job_run(...)` handles now have `.progress(...)` and `report_progress(...)` (writes `job_runs.details` immediately, throttled to every 3 s). The stop_observations loader reports phase, MB downloaded and rows inserted, so the backfill card shows e.g. "2026-08: parsing and inserting (6,500,000 rows), about 25% of a typical month" plus "2 of 12 months loaded". Its Progress tab lists every month in range (loaded, loading, waiting).
