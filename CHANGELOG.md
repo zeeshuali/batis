@@ -4,6 +4,9 @@ Newest first. Update this file (and PROGRESS.md and memory) after every change.
 
 ## 2026-11-10
 
+### Backfill now loads 2 months per night
+- `stop_obs_backfill_months_per_run` default 1 -> 2. The worker commits each month in its own transaction, so a failure in the second month keeps the first, and it stops after a failure or when nothing is left. 9 months remain, so about 5 nights. Tests: 229 backend (+3).
+
 ### First backfill month loaded (task 7)
 - **2026-08 loaded: 25,768,104 rows, all 30 agencies, 99.6% with stop_pk.** First run took about 38 min, of which roughly 15 min was the closing `UPDATE ... SET stop_pk` that rewrote every row and all 7 indexes.
 - Fix: `_load_month_impl` now resolves `stop_pk` while inserting, from an in-memory map of `gtfs_stops`. The closing UPDATE remains only as a cheap fallback for stops missing from the map. Test added (226 backend).

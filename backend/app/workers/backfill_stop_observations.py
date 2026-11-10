@@ -5,7 +5,7 @@ Usage:
    python -m app.workers.backfill_stop_observations N        # load the N newest missing months
 
 With no argument it does one small step: it loads the newest missing months, at most
-`stop_obs_backfill_months_per_run` (default 1), going back no further than
+`stop_obs_backfill_months_per_run` (default 2, each month in its own transaction), going back no further than
 `stop_obs_backfill_max_months_back` (default 12) months. Run it daily and history
 fills in over time. With nothing left to load it exits 0 and does nothing.
 
@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import sys
 
+from app.core.config import get_settings
 from app.db import get_engine
 from app.services.five11_stop_observations import backfill_last_n_months, backfill_step
 
@@ -25,14 +26,23 @@ def main() -> int:
     from app.core.redact import install_redaction
     install_redaction()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    with get_engine().begin() as conn:
-        if len(sys.argv) > 1:
-            n = int(sys.argv[1])
-            print(f"[backfill] Loading the {n} newest missing months of stop_observations...")
+    engine = get_engine()
+    if len(sys.argv) > 1:
+        n = int(sys.argv[1])
+        print(f"[backfill] Loading the {n} newest missing months of stop_observations...")
+        with engine.begin() as conn:
             results = backfill_last_n_months(conn, n=n)
-        else:
-            print("[backfill] Daily step: loading the newest missing month(s)...")
-            results = backfill_step(conn)
+    else:
+        per_run = get_settings().stop_obs_backfill_months_per_run
+        print(f"[backfill] Daily step: loading up to {per_run} missing month(s), one transaction each...")
+        results = {}
+        for _ in range(per_run):
+            # Commit each month separately so a failure in a later month keeps earlier ones.
+            with engine.begin() as conn:
+                step = backfill_step(conn, months_per_run=1)
+            results.update(step)
+            if not step or any(v < 0 for v in step.values()):
+                break
     if not results:
         print("[backfill] Nothing to load: every month in range is already present.")
         return 0

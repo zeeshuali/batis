@@ -1,5 +1,5 @@
 #!/bin/sh
-# Daily BATIS stop_observations backfill: one small step (newest missing month, max 12 months back).
+# Daily BATIS stop_observations backfill: up to 2 newest missing months per run, max 12 months back.
 # Installed in the user crontab. Safe to run by hand. Skips if another run holds the lock.
 # Tune with STOP_OBS_BACKFILL_MONTHS_PER_RUN / STOP_OBS_BACKFILL_MAX_MONTHS_BACK in backend/.env.
 cd "$(dirname "$0")/../backend" || exit 1

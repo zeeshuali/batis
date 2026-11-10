@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # Daily stop_observations backfill (cron): load this many missing months per run,
     # newest first, never older than max_months_back. Raise these to deepen history.
-    stop_obs_backfill_months_per_run: int = 1
+    stop_obs_backfill_months_per_run: int = 2
     stop_obs_backfill_max_months_back: int = 12
 
     # Cross-agency transfers are matched spatially. Links are stored up to the largest

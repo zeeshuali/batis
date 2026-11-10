@@ -46,9 +46,9 @@ CATALOG: list[dict[str, Any]] = [
     },
     {
         "key": "stop_obs_backfill", "title": "Stop observations backfill", "category": "Ingestion", "kind": "job",
-        "description": "Loads the 511.org monthly archive of actual vs scheduled arrival times, one month per "
-                       "run, newest first. Daily cron fills history gradually.",
-        "how": ["Pick the newest month that is missing, no older than the backfill horizon",
+        "description": "Loads the 511.org monthly archive of actual vs scheduled arrival times, up to two months "
+                       "per night, newest first. Daily cron fills history gradually.",
+        "how": ["Pick the newest missing month within the backfill horizon (repeat for each month per run, one transaction each)",
                 "Take a Postgres advisory lock so two loaders cannot run at once",
                 "Download the month's zip from /transit/datafeeds (about 500 MB)",
                 "Stream the CSV in 100k-row chunks, parse arrival times, insert into stop_observations",
