@@ -79,8 +79,8 @@ CATALOG: list[dict[str, Any]] = [
         "how": ["Fetch /traffic/events, /traffic/wzdx and /toll/programs", "Upsert traffic_events, work_zones, toll_rates"],
         "jobs": ["traffic_loop"], "api_source": "511", "api_like": ["%/traffic/%", "%/toll/%"],
         "tables": [("traffic_events", "Traffic events"), ("work_zones", "Work zones"), ("toll_rates", "Toll rates")],
-        "schedule": "Every 300s while uvicorn is running", "command": "started by uvicorn (app.main lifespan)",
-        "settings": ["five11_rate_limit_per_hour"], "stale_minutes": 30,
+        "schedule": "Every {five11_traffic_poll_seconds}s while uvicorn is running", "command": "started by uvicorn (app.main lifespan)",
+        "settings": ["five11_traffic_poll_seconds", "five11_rate_limit_per_hour"], "stale_minutes": 45,
     },
     {
         "key": "baseline", "title": "Delay baseline predictor", "category": "Processing", "kind": "job",
@@ -182,7 +182,7 @@ def _iso(ts: datetime | None) -> str | None:
 def _fmt_schedule(act: dict[str, Any]) -> str:
     s = get_settings()
     try:
-        return act["schedule"].format(**{k: getattr(s, k) for k in ("five11_rt_poll_seconds",)})
+        return act["schedule"].format(**{k: getattr(s, k) for k in ("five11_rt_poll_seconds", "five11_traffic_poll_seconds")})
     except Exception:
         return act["schedule"]
 

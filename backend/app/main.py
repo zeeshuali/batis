@@ -93,10 +93,10 @@ async def lifespan(app: FastAPI):
     )
     t_embed.start()
 
-    # 511.org traffic events, work zones, toll rates — polls every 5 min
+    # 511.org traffic events, work zones, toll rates — interval from config (511 budget)
     t_traffic = threading.Thread(
         target=run_traffic_loop,
-        kwargs={"interval_seconds": 300, "stop_event": _stop_event},
+        kwargs={"interval_seconds": get_settings().five11_traffic_poll_seconds, "stop_event": _stop_event},
         daemon=True,
         name="traffic-ingestor",
     )

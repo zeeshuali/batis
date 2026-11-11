@@ -9,7 +9,7 @@ _Rule: update this block, CHANGELOG.md, CLAUDE.md and memory after every change 
 
 Open tasks: (4) RT ingestion fixed and verified with one live poll; still to do: keep the ingestor running (uvicorn or `python -m app.workers.run_rt_ingestor`) to accumulate data, then rebuild snapshots/headways/predictions; (5) DONE: spatial `transfer_reliability` with a user-selectable radius (migration 011); (6) DONE: pgvector image + embeddings loaded (Ollama model still needs pulling or OLLAMA_MODEL set); (7) daily backfill cron installed; 5 of 12 months loaded (2026-06 to 2026-10), 7 to go at two per night (about 4 nights); live RT poll bug (routeless BART trip updates) fixed; (8) DONE (docs corrected), still: rotate leaked 511 key.
 PROGRESS.md tables rewritten 2026-11-10 from the code (legend, 7 tabs, 62 routes, ETL steps 0 to 17, bug list closed; found `AiAssistant.tsx` orphaned, no tab uses it). Docs sync (2026-11-10): CLAUDE.md said stop_observations held 2026-08 to 2026-10; corrected to 2026-06 to 2026-10 (about 129M rows) per the CHANGELOG batch 1 result. Not re-queried: `psql` is not installed on the host, so verify counts via the dashboard Data tab or `docker exec`.
-Changelog as product memory (2026-11-10): CHANGELOG.md now has an entry template (incl. `Audit` type), history back to 2026-03-17 reconstructed from git, and CLAUDE.md rule 11 requires an entry at the end of every prompt, read-only ones too. Ingestor errors audited: 8 NOT NULL `route_id` failures (21:50-22:12 UTC) predate fix `97e11d4` (22:19 UTC), none since.
+511 budget fixed (2026-11-10): the dashboard check showed 79 of 60 req/h (RT 40 + traffic 36 + uncached `/alerts` 12). Now RT 300 s, traffic 900 s, `/alerts` cached 300 s = 48/h; API restarted (log `~/batis-uvicorn.log`). Changelog as product memory (2026-11-10): CHANGELOG.md now has an entry template (incl. `Audit` type), history back to 2026-03-17 reconstructed from git, and CLAUDE.md rule 11 requires an entry at the end of every prompt, read-only ones too. Ingestor errors audited: 8 NOT NULL `route_id` failures (21:50-22:12 UTC) predate fix `97e11d4` (22:19 UTC), none since.
 Done today: Status tab redesigned as activity cards with drill-down and live backfill progress, System Status dashboard (Status tab, `/admin/*`, migration 012), surrogate-key commit, Berkeley removal, synthetic ops data removed and purged. Reliability, Crowding, Demand and Bunching sections now have no data until live RT fills `ops_trip_events`. See `CHANGELOG.md`.
 
 ---
@@ -95,7 +95,7 @@ Shared components: `MapView` (all GeoJSON layers incl. traffic and transit impac
 | 16 | ADA gap per stop | ✅ | 20,260 rows |
 | 17 | Refresh `cell_ada_gap` view | ✅ | |
 
-Other workers: `run_rt_ingestor` (poll every 180 s, ✅ verified live, must be left running), `backfill_stop_observations` (cron 03:00, 2 months a night), `load_stop_observations`.
+Other workers: `run_rt_ingestor` (poll every 300 s, ✅ verified live, must be left running), `backfill_stop_observations` (cron 03:00, 2 months a night), `load_stop_observations`.
 
 ## Background threads (API startup, all daemon)
 

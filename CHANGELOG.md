@@ -16,6 +16,13 @@ Type `Audit` is for read-only checks: say what was inspected, what was found, an
 
 ## 2026-11-10
 
+### Fixed: 511 request budget exceeded (79 of 60 per hour)
+- **Type:** Fixed
+- **What:** The Backend dashboard check `five11_budget` was red. From `api_call_log`: RT poll 2 req per 180 s (40/h), traffic loop 3 req per 300 s (36/h), and `/alerts` calling 511 on every request with no cache (about 12/h from the banner) added up to about 88/h. Changes: `five11_rt_poll_seconds` 180 -> 300 (24/h); new `five11_traffic_poll_seconds` 900 (12/h) replacing the hardcoded 300 in `main.py`; new `five11_alerts_cache_seconds` 300 with an in-process cache in `alerts_loader.get_service_alerts` (failed fetches are not cached). Planned use is 48 of 60 per hour, leaving 12 for the nightly backfill (which skips below 10). Traffic activity schedule text and stale threshold (45 min) updated.
+- **Why:** User said "fix errors". Of the errors listed on the dashboard this was the only live one: the 8 `route_id` failures were already fixed by `3d8b41f` (now rewritten hash, see history), and the 2 "Interrupted" rows are historic restarts.
+- **Verified:** 237 backend tests pass (+4 in `tests/test_alerts_cache.py`, including one that checks the planned budget stays at least 10 under the limit). Restarted uvicorn (old PID 37104, new 66276, log `~/batis-uvicorn.log`); `/admin/activities` now reports "Every 300s" (RT) and "Every 900s" (traffic). Not yet verified: the live hourly count dropping below 60. The check uses a rolling hour, so it stays red until the earlier calls age out (about 1 h) and the traffic and RT loops are slower.
+- **Open:** re-check `five11_budget` in about an hour. The 2 other dashboard "errors" (interrupted embed pipeline, interrupted backfill restart) are history, not live.
+
 ### First push to GitHub, Mapbox token scrubbed from history
 - **Type:** Changed
 - **What:** Added remote `origin` = `https://github.com/zeeshuali/batis` (public, was empty) and pushed `main`. Before pushing, a scan found the Mapbox public token (`pk.eyJ...`) in captured request URLs in `ui-audit/report.json` (added in the initial commit). Rewrote the local, unpushed history with `git filter-branch` to replace it with `pk.REDACTED`, so **every commit hash changed**; hashes quoted in this changelog, PROGRESS.md and the history section were remapped to the new ones. Local branch `backup-pre-scrub` still holds the old history (not pushed).

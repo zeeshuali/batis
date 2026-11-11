@@ -1,6 +1,8 @@
 """Fetch and parse GTFS-RT service alerts — 511.org (preferred) or AC Transit fallback."""
 from __future__ import annotations
 
+import threading
+import time
 from typing import Any
 
 import certifi
@@ -10,8 +12,27 @@ from app.core.run_log import tracked_get
 from app.core.config import get_settings
 
 
+_cache_lock = threading.Lock()
+_cache: dict[str, Any] = {"at": 0.0, "data": None}
+
+
 def get_service_alerts() -> list[dict[str, Any]]:
+    """Cached wrapper: every viewer of /alerts shares one 511 call per cache window
+    (five11_alerts_cache_seconds), so the UI cannot burn the 511 request budget."""
+    ttl = get_settings().five11_alerts_cache_seconds
+    with _cache_lock:
+        if _cache["data"] is not None and time.monotonic() - _cache["at"] < ttl:
+            return _cache["data"]
+        data, ok = _fetch_service_alerts()
+        if ok:
+            _cache.update(at=time.monotonic(), data=data)
+        return data
+
+
+def _fetch_service_alerts() -> tuple[list[dict[str, Any]], bool]:
     """
+    Returns (alerts, ok). ok is False when a fetch failed, so errors are not cached.
+
     Fetch current service alerts from 511.org (all Bay Area agencies) if FIVE11_API_KEY
     is configured, otherwise fall back to the AC Transit direct feed.
     Returns a list of parsed alert dicts.
@@ -34,29 +55,29 @@ def get_service_alerts() -> list[dict[str, Any]]:
                 or data.get("entity", [])
                 or []
             )
-            return _parse_json_entities(entities)
+            return _parse_json_entities(entities), True
         except Exception as exc:
             print(f"[alerts] 511.org fetch failed: {exc}")
-            return []
+            return [], False
 
     # Fallback: AC Transit direct protobuf feed
     token = settings.actransit_api_key
     if not token or token == "your_actransit_api_key_here":
-        return []
+        return [], True
 
     url = f"https://api.actransit.org/transit/gtfsrt/alerts?token={token}"
     try:
         resp = tracked_get(url, timeout=15, verify=certifi.where())
         resp.raise_for_status()
     except Exception:
-        return []
+        return [], False
 
     try:
         from google.transit import gtfs_realtime_pb2
         feed = gtfs_realtime_pb2.FeedMessage()
         feed.ParseFromString(resp.content)
     except Exception:
-        return []
+        return [], False
 
     alerts = []
     for entity in feed.entity:
@@ -111,7 +132,7 @@ def get_service_alerts() -> list[dict[str, Any]]:
             "informed_entities": informed,
             "active_periods": active_periods,
         })
-    return alerts
+    return alerts, True
 
 
 def _parse_json_entities(entities: list[dict[str, Any]]) -> list[dict[str, Any]]:

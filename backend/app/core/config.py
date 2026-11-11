@@ -16,9 +16,13 @@ class Settings(BaseSettings):
     # (populated by five11_operators.run_operators_sync) — see Phase A-1.
     five11_api_key: str | None = None
     five11_base_url: str = "https://api.511.org"
-    # RT poll interval. Each cycle makes 2 requests (vehicles + trip updates) and the
-    # 511 limit is 60 req/hour shared with other jobs, so keep this >= 120.
-    five11_rt_poll_seconds: int = 180
+    # 511 budget: 60 req/hour shared by all jobs. Planned use per hour:
+    # RT 2 req / 300 s = 24, traffic 3 req / 900 s = 12, alerts <= 1 req / 300 s = 12,
+    # total 48, leaving 12 for the nightly backfill and manual calls.
+    # Lowering any interval below needs the others raised, or the status check goes red.
+    five11_rt_poll_seconds: int = 300
+    five11_traffic_poll_seconds: int = 900
+    five11_alerts_cache_seconds: int = 300
 
     # 511 allows 60 requests per rolling hour. The status dashboard shows usage against it.
     five11_rate_limit_per_hour: int = 60
