@@ -10,6 +10,7 @@ Complete inventory of every feature, endpoint, component, and data pipeline in B
 _Rule: update this block, CHANGELOG.md, CLAUDE.md and memory after every change (CLAUDE.md rule 10)._
 
 Open tasks: (4) RT ingestion fixed and verified with one live poll; still to do: keep the ingestor running (uvicorn or `python -m app.workers.run_rt_ingestor`) to accumulate data, then rebuild snapshots/headways/predictions; (5) DONE: spatial `transfer_reliability` with a user-selectable radius (migration 011); (6) DONE: pgvector image + embeddings loaded (Ollama model still needs pulling or OLLAMA_MODEL set); (7) daily backfill cron installed; 5 of 12 months loaded (2026-06 to 2026-10), 7 to go at two per night (about 4 nights); live RT poll bug (routeless BART trip updates) fixed; (8) DONE (docs corrected), still: rotate leaked 511 key.
+Docs sync (2026-11-10): CLAUDE.md said stop_observations held 2026-08 to 2026-10; corrected to 2026-06 to 2026-10 (about 129M rows) per the CHANGELOG batch 1 result. Not re-queried: `psql` is not installed on the host, so verify counts via the dashboard Data tab or `docker exec`.
 Done today: Status tab redesigned as activity cards with drill-down and live backfill progress, System Status dashboard (Status tab, `/admin/*`, migration 012), surrogate-key commit, Berkeley removal, synthetic ops data removed and purged. Reliability, Crowding, Demand and Bunching sections now have no data until live RT fills `ops_trip_events`. See `CHANGELOG.md`.
 
 ---

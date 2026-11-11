@@ -4,6 +4,9 @@ Newest first. **Rule:** after every change, update this file, PROGRESS.md, CLAUD
 
 ## 2026-11-10
 
+### Docs sync, PROGRESS.md reaffirmed as always-update
+- User repeated: update PROGRESS.md always. Reworded CLAUDE.md rule header to name PROGRESS.md first. Fixed stale `stop_observations` months in CLAUDE.md (2026-06 to 2026-10, about 129M rows, per the batch 1 entry below) and noted it in PROGRESS.md. Docs only, no code or tests changed (233 backend, 115 frontend).
+
 ### Backfill batch 1 result (July + June) and a live-poll bug found during it
 - **2026-07: 25,714,079 rows, 2026-06: 25,383,237 rows, both ok, no errors.** July took 58 min (while the API threads were also running), June 29 min. `stop_pk` coverage 99.0 to 99.2% (a few stops are missing from today's GTFS). Only 28 agencies have data in June and July (30 from August). stop_observations now covers 2026-06 to 2026-10, about 129M rows. 7 months remain (about 4 nights).
 - **Bug fixed: live RT poll failed intermittently** (8 failed polls from 21:50 UTC). BART trip updates have no `route_id`, so they were labelled agency AC and failed the NOT NULL `ops_trip_events.route_id` insert. That aborted the whole poll transaction and rolled back the vehicle positions too. No bad rows were stored. Fixes: agency now also comes from the `trip_id` prefix (unknown agency is skipped, not defaulted to AC), the route is looked up from `gtfs_trips` when the feed omits it (unresolvable trips skipped and counted as `skipped_no_agency` / `skipped_no_route` in the job details), and each poll stage runs in a SAVEPOINT so one failing stage can no longer discard the others.
