@@ -256,3 +256,4 @@ VITE_API_KEY=...                   # X-API-Key for frontend requests
     - `CLAUDE.md` and the other docs the change touches (counts, tables, endpoints, commands, DB state).
     - Memory (`~/.claude/projects/-home-mza-projects-batis/memory/`): add or update the relevant file and its `MEMORY.md` line.
     - Commit the doc updates together with the change. If nothing in a category needs updating, say so in the final report instead of skipping silently.
+11. **Changelog entry at the end of EVERY prompt, once the work is finished.** This covers every operation, including read-only ones (audits, investigations, questions where you found something), not only code changes. Add an entry at the top of `CHANGELOG.md` using the template at its head (Type, What, Why, Verified, Open); use type `Audit` for read-only work. Do it before the final report, in the same turn. If the prompt produced nothing worth recording (a pure greeting), say so in the report.

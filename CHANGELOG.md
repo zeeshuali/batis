@@ -1,8 +1,34 @@
 # BATIS Changelog
 
-Newest first. **Rule:** after every change, update this file, PROGRESS.md, CLAUDE.md and memory in the same turn (CLAUDE.md rule 10).
+The product's running memory. Newest first. **Rule (CLAUDE.md rule 10 and 11):** at the end of EVERY prompt, once the work is finished, add an entry here, even for read-only work (audits, investigations, answers that found something). Then update PROGRESS.md, CLAUDE.md and memory in the same turn.
+
+## How to write an entry
+
+```
+### <short title>
+- **Type:** Added | Changed | Fixed | Removed | Data | Docs | Audit | Decision
+- **What:** what was done or found (names, counts, commit hashes)
+- **Why:** the reason or the user's request
+- **Verified:** how it was checked (test counts, live poll, query, or "not verified: ...")
+- **Open:** follow-ups, or "none"
+```
+Type `Audit` is for read-only checks: say what was inspected, what was found, and the verdict. Keep the newest entry at the top of the newest date. Never delete old entries; correct them with a new entry.
 
 ## 2026-11-10
+
+### Audit: the 9 ingestor errors from the last 24 h
+- **Type:** Audit
+- **What:** Listed the `rt_ingestor` job runs with status error via `GET /admin/job-runs`. 8 are `NotNullViolation` on `ops_trip_events.route_id` (BART trip updates with no `route_id`, labelled agency AC), at 21:50, 21:53, 21:56, 22:00, 22:03, 22:06, 22:09 and 22:12 UTC, trips `BA:919134610` and `BA:111135410`. The 9th (20:55 UTC) is a job row left `running` when the API process stopped, reaped as "Interrupted".
+- **Why:** User asked to see the errors after the ingestor was found already running inside uvicorn on port 8001 (PID 37104), so no second ingestor was started (it would double the 511 request rate).
+- **Verified:** Fix commit `3d8b41f` is timestamped 22:19 UTC (14:19 PST), 7 minutes after the last failed poll. The most recent run (about 01:30 UTC next day) was ok with 80,539 rows and no error rows after 22:12. So the 8 errors predate the fix and have not recurred. Code path not re-read this turn.
+- **Open:** none.
+
+### Docs: changelog turned into the product memory, history backfilled
+- **Type:** Docs
+- **What:** Added the entry template and the audit type above, a new CLAUDE.md rule 11 (changelog entry at the end of every prompt, including read-only work), and a "History before 2026-11-10" section at the bottom reconstructed from all 176 commits in `git log`.
+- **Why:** User asked for a file that records every completed step, audit and feature so nothing is missed.
+- **Verified:** Every date and commit in the history section comes from `git log --reverse`. Docs only, tests unchanged (233 backend, 115 frontend).
+- **Open:** the 2026-11-09 commits are already described in the undated-looking entries further down this date (RT ingestion fix, spatial transfers, pgvector, removals), because they were written together on 2026-11-10.
 
 ### ETL step count corrected
 - `run_data_jobs.py` prints steps 0 to 17 labelled "n/20"; steps 18 to 20 do not exist. PROGRESS.md and CLAUDE.md now say so. Docs only, tests unchanged.
@@ -97,3 +123,43 @@ Newest first. **Rule:** after every change, update this file, PROGRESS.md, CLAUD
 
 ### Tests
 - 207 passing.
+
+---
+
+## History before 2026-11-10 (reconstructed from `git log`, 2026-11-10)
+
+_Written after the fact from commit subjects, not from per-change notes. The 2026-11-09 work (commits `018ba6c` to `44febdd`) is described in the entries above under 2026-11-10._
+
+### 2026-11-09
+- `018ba6c` Docs: marked the 511.org integration built, recorded local DB state, flagged PROGRESS.md stale.
+- `3f1e04c` Stop surrogate key (migration 010), log redaction, `stop_pk` joins across services.
+- `7f19274` Removed the Berkeley crime fetch (out of scope).
+- `f81ca70` Removed synthetic ops seeding, purged synthetic tables, added this CHANGELOG.
+- `4578dbe` Fixed live 511 RT ingestion (worker import, agency_id bug, poll interval, agency-aware lookups).
+- `b1620d0` Spatial transfer reliability with a user-selectable radius (migration 011).
+- `44febdd` pgvector via a custom postgres image, RAG embeddings enabled.
+
+### 2026-05-13 (multi-agency data and Sprint 5b/5c)
+- Sprint 5b: Service Delivery Gap Map finished. Migration 007 (`service_delivery_gap`, `stop_cell`), `backfill_last_n_months`, gap tier function, compute/feature/breakdown services, `tolerance_seconds` config, ETL step 15, `/equity/service-delivery-gap` endpoints (`e6c5732`), Planning sub-page (`7410dcf`), acceptance sweep (`9d54e4a`). Fix for the 511 edge-schema `stop_observations` (`006c43a`, 05-12).
+- Sprint 5c: ADA Accessibility Gap Tracker. Spec and plan, migration 008, loaders for Census tracts (TIGERweb), GTFS pathways and ACS B18105 ambulatory data, gap scoring, stop and cell GeoJSON, drill-down, ETL grew by 5 steps, `/accessibility/gaps` endpoints, Planning → ADA Gap page, acceptance sweep, review fixes (`41479c5`).
+- Foundation fix: GTFS composite primary keys `(agency_id, id)` (migration 009, `7066388`), with loader `ON CONFLICT` updates, regression tests, and agency-aware JOINs in analysis, ADA gap, smaller services, AI embeddings and frontend (`5c4fb9a` to `25d658a`). Sprint closed `95e9ea5`. ETL re-run after the migration (`92558d1`).
+
+### 2026-05-12 (the big build day)
+- **Phase 1 frontend (1b, 1c, 1d):** sections (Operations, Network, Equity & Safety, Benchmarks), shared types and format helpers, fetch errors surfaced, dark/light theme, URL-hash state, CSV export, trip planner moved into Network, MapView reads filter and selection contexts, Sidebar retired. Several field-name and CSS fixes (`8702306`, `89f489e`, `705ff96`).
+- **511.org multi-agency integration** (`b4f083f`, Blueprint Sprints 1 and 2), AI assistant plus embedding pipeline (`47f5d31`), roadmap/prompts docs (`d4d3314`), local `status_server.py` (`a7d59e0`, later superseded by the Backend tab).
+- **Agencies catalog, Phase A and B:** agencies SQL and operators ingestor, `/agencies` endpoints, `AgenciesContext`, Agency drill-down section, Overview "By agency" card, searchable agency combobox with grouping.
+- **Planning section, Phases 1 to 5b:** Diagnostics, Coverage (equity × access), Regional (MPO), Workbench, Scenarios table, CRUD and builder.
+- **GTFS-RT ingestor fix** (`e489084`): prefix-strip, delay clamp, null guard.
+- **Sprint 4a:** transfer reliability matrix, GTFS fares ingestor (v1 and v2), transfer desert map. **Sprint 4b:** fare calculator, corridor sampler, Planning → Fares page, acceptance sweep. **Sprint 5a:** Fare Burden Mapper backend and page, acceptance sweep (check 4 relaxed, `a477948`).
+
+### 2026-05-11 (Phase 0 bug bash and Phase 1a)
+- Spec for the BATIS 2.0 redesign (`80c8815`) and Phase 0 plan. Backend test infrastructure.
+- Phase 0 fixes: `/routes/compare` shadowed by `/routes/{route_id}/geo` (`43e47f4`), safety buffer in degrees instead of metres (`beeef38`), schema fixes for pgvector, immutable generated columns and multi-agency (`e74faf4`), missing requirements (`0e13626`), `equity_score` populated from Census ACS (`4cd1f27`), StopDrawer wired to live departures (`f9064a0`), UTF-8 BOM in the traffic ingestor (`e36dc30`), dual-filter PostGIS pattern for safety scores (`3fe909d`). Phase 0 marked complete (`0d3c305`). docker-compose ports rewired and `postgres-test` added (`1429cc2`).
+- Phase 1a (dashboard foundation): Vitest and Testing Library, design tokens, AppShell grid, FilterContext, SelectionContext, shared axios helpers, KpiCard/Spinner/EmptyState/DataList/TrendChart/BarChart primitives, FilterBar, section scaffolds, Overview content, 5-tab nav, App.tsx rewired.
+
+### 2026-03-18
+- `aa729d2` Phase 0: SQL baseline delay predictions and 30-day vehicle position retention.
+
+### 2026-03-17 (project start)
+- `25b8188` Initial commit: BATIS dashboard (AC Transit GTFS-RT, GTFS static, safety, equity).
+- `d02cdb8` Trip Planner with a GTFS-RT delay overlay.
