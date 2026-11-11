@@ -4,6 +4,9 @@ Newest first. **Rule:** after every change, update this file, PROGRESS.md, CLAUD
 
 ## 2026-11-10
 
+### PROGRESS.md tables rewritten from the code
+- Replaced the stale May tables (11 old tabs, 29 endpoints, 11 ETL steps, B1 to B8 bugs, 24-agency note) with the current inventory: 7 tabs, 62 routes, 20-step ETL, threads, table population, and a closed-bug table. Legend now has ⏳ "needs data" so empty RT-derived tables are not read as bugs. Verified by grep: no `verify=False`, safety buffer in geography meters, `/routes/compare` ordered, pgvector in schema, CORS from settings. Found `AiAssistant.tsx` imported nowhere (no UI for `/ai/*`). Not verified: API rate limiting, Oakland pagination, and fresh DB row counts (no psql on host). Docs only, tests unchanged (233 backend, 115 frontend).
+
 ### Docs sync, PROGRESS.md reaffirmed as always-update
 - User repeated: update PROGRESS.md always. Reworded CLAUDE.md rule header to name PROGRESS.md first. Fixed stale `stop_observations` months in CLAUDE.md (2026-06 to 2026-10, about 129M rows, per the batch 1 entry below) and noted it in PROGRESS.md. Docs only, no code or tests changed (233 backend, 115 frontend).
 

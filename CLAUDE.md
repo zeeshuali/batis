@@ -241,7 +241,7 @@ VITE_API_KEY=...                   # X-API-Key for frontend requests
 
 ## What Claude Should Always Do In This Project
 
-1. **Check PROGRESS.md first** before suggesting new features — many things are already in progress or broken.
+1. **Check PROGRESS.md first** (rewritten 2026-11-10, current) before suggesting new features — many things are already in progress or broken.
 2. **Check BLUEPRINT.md** for the agreed feature roadmap before adding new endpoints or components.
 3. **Never use `verify=False`** in any new code — use `certifi.where()` or proper SSL.
 4. **Always cast geometry to `::geography`** when computing distances in meters.
