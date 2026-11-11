@@ -4,6 +4,9 @@ Newest first. **Rule:** after every change, update this file, PROGRESS.md, CLAUD
 
 ## 2026-11-10
 
+### ETL step count corrected
+- `run_data_jobs.py` prints steps 0 to 17 labelled "n/20"; steps 18 to 20 do not exist. PROGRESS.md and CLAUDE.md now say so. Docs only, tests unchanged.
+
 ### PROGRESS.md tables rewritten from the code
 - Replaced the stale May tables (11 old tabs, 29 endpoints, 11 ETL steps, B1 to B8 bugs, 24-agency note) with the current inventory: 7 tabs, 62 routes, 20-step ETL, threads, table population, and a closed-bug table. Legend now has ⏳ "needs data" so empty RT-derived tables are not read as bugs. Verified by grep: no `verify=False`, safety buffer in geography meters, `/routes/compare` ordered, pgvector in schema, CORS from settings. Found `AiAssistant.tsx` imported nowhere (no UI for `/ai/*`). Not verified: API rate limiting, Oakland pagination, and fresh DB row counts (no psql on host). Docs only, tests unchanged (233 backend, 115 frontend).
 

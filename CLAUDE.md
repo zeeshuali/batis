@@ -49,7 +49,7 @@ batis/
 │   │   │   └── security.py     ← X-API-Key auth (disabled if key not set)
 │   │   ├── services/           ← All business logic
 │   │   └── workers/
-│   │       └── run_data_jobs.py ← 20-step one-shot ETL pipeline
+│   │       └── run_data_jobs.py ← one-shot ETL pipeline (steps 0 to 17, labelled n/20 in the code)
 │   ├── ml/
 │   │   ├── baseline.py         ← SQL delay predictor (runs every 30 min)
 │   │   └── embed.py            ← RAG embedding pipeline (runs every 30 min)
