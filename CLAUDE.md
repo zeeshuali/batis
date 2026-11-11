@@ -58,7 +58,7 @@ batis/
 └── frontend/
     ├── .env                    ← VITE_MAPBOX_TOKEN, VITE_API_BASE_URL
     ├── src/
-    │   ├── App.tsx             ← Root component, 11-section tab routing
+    │   ├── App.tsx             ← Root component, 7 tabs plus a hidden Agency section
     │   └── components/
     │       ├── MapView.tsx     ← Mapbox map, all GeoJSON layers
     │       ├── Sidebar.tsx     ← All data panels
@@ -88,7 +88,7 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-Current test count: **233 backend** tests (39 at Phase 0 close) and **115 frontend** (vitest) passing.
+Current test count: **237 backend** tests (39 at Phase 0 close) and **115 frontend** (vitest) passing.
 
 If a Phase 0 regression appears, the matching test in `backend/tests/`
 will catch it before merge — schema lint and import smoke tests cover
