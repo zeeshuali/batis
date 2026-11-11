@@ -16,6 +16,13 @@ Type `Audit` is for read-only checks: say what was inspected, what was found, an
 
 ## 2026-11-10
 
+### Push attempted, no git remote configured
+- **Type:** Audit
+- **What:** `git push` failed: the repo has no remote (`git remote -v` is empty). Nothing was pushed. Local `main` holds commit `4910c65` and the earlier ones.
+- **Why:** User asked to push the changelog work.
+- **Verified:** `git remote -v` printed nothing, push error says to name a remote.
+- **Open:** user must supply a remote URL (for example a GitHub repo) so it can be added with `git remote add origin <url>` and pushed.
+
 ### Audit: the 9 ingestor errors from the last 24 h
 - **Type:** Audit
 - **What:** Listed the `rt_ingestor` job runs with status error via `GET /admin/job-runs`. 8 are `NotNullViolation` on `ops_trip_events.route_id` (BART trip updates with no `route_id`, labelled agency AC), at 21:50, 21:53, 21:56, 22:00, 22:03, 22:06, 22:09 and 22:12 UTC, trips `BA:919134610` and `BA:111135410`. The 9th (20:55 UTC) is a job row left `running` when the API process stopped, reaped as "Interrupted".
