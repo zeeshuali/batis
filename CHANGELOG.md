@@ -16,9 +16,16 @@ Type `Audit` is for read-only checks: say what was inspected, what was found, an
 
 ## 2026-11-10
 
+### First push to GitHub, Mapbox token scrubbed from history
+- **Type:** Changed
+- **What:** Added remote `origin` = `https://github.com/zeeshuali/batis` (public, was empty) and pushed `main`. Before pushing, a scan found the Mapbox public token (`pk.eyJ...`) in captured request URLs in `ui-audit/report.json` (added in the initial commit). Rewrote the local, unpushed history with `git filter-branch` to replace it with `pk.REDACTED`, so **every commit hash changed**; hashes quoted in this changelog, PROGRESS.md and the history section were remapped to the new ones. Local branch `backup-pre-scrub` still holds the old history (not pushed).
+- **Why:** User asked to upload the code to that repo; the repo is public. Scan also checked tracked files for `.env`, dumps and keys: none (`.env` files are gitignored, only `.env.example` is tracked), and the 511, AC Transit and Mapbox values from the local `.env` files do not appear in any rewritten commit.
+- **Verified:** `git grep pk.eyJ` over the rewritten `main` history: 0 hits. Push result below in the session report.
+- **Open:** the token was never pushed, but rotate or URL-restrict it in Mapbox if you want to be safe. Delete `backup-pre-scrub` once satisfied (it contains the token). Still pending: rotate the leaked 511 key.
+
 ### Push attempted, no git remote configured
 - **Type:** Audit
-- **What:** `git push` failed: the repo has no remote (`git remote -v` is empty). Nothing was pushed. Local `main` holds commit `4910c65` and the earlier ones.
+- **What:** `git push` failed: the repo has no remote (`git remote -v` is empty). Nothing was pushed. Local `main` holds commit `26f6ef6` and the earlier ones.
 - **Why:** User asked to push the changelog work.
 - **Verified:** `git remote -v` printed nothing, push error says to name a remote.
 - **Open:** user must supply a remote URL (for example a GitHub repo) so it can be added with `git remote add origin <url>` and pushed.
@@ -27,7 +34,7 @@ Type `Audit` is for read-only checks: say what was inspected, what was found, an
 - **Type:** Audit
 - **What:** Listed the `rt_ingestor` job runs with status error via `GET /admin/job-runs`. 8 are `NotNullViolation` on `ops_trip_events.route_id` (BART trip updates with no `route_id`, labelled agency AC), at 21:50, 21:53, 21:56, 22:00, 22:03, 22:06, 22:09 and 22:12 UTC, trips `BA:919134610` and `BA:111135410`. The 9th (20:55 UTC) is a job row left `running` when the API process stopped, reaped as "Interrupted".
 - **Why:** User asked to see the errors after the ingestor was found already running inside uvicorn on port 8001 (PID 37104), so no second ingestor was started (it would double the 511 request rate).
-- **Verified:** Fix commit `3d8b41f` is timestamped 22:19 UTC (14:19 PST), 7 minutes after the last failed poll. The most recent run (about 01:30 UTC next day) was ok with 80,539 rows and no error rows after 22:12. So the 8 errors predate the fix and have not recurred. Code path not re-read this turn.
+- **Verified:** Fix commit `97e11d4` is timestamped 22:19 UTC (14:19 PST), 7 minutes after the last failed poll. The most recent run (about 01:30 UTC next day) was ok with 80,539 rows and no error rows after 22:12. So the 8 errors predate the fix and have not recurred. Code path not re-read this turn.
 - **Open:** none.
 
 ### Docs: changelog turned into the product memory, history backfilled
@@ -114,7 +121,7 @@ Type `Audit` is for read-only checks: say what was inspected, what was found, an
 - Tests: 211 backend, 112 frontend.
 
 ### Fixed (live RT ingestion, task 4)
-- `rt_vehicle_positions_raw` was empty for three reasons: (1) `workers/run_rt_ingestor.py` imported the deprecated AC-only `gtfs_rt_ingestor`; it now runs `five11_rt_ingestor`. (2) `_process_trip_updates` read `agency_id` before assigning it, so every poll crashed (bug from e489084). (3) the API polled every 30s, 4x the 511 limit of 60 req/hr; the interval is now `five11_rt_poll_seconds` (180) in `config.py`. The ingestor only runs while uvicorn or the worker is running.
+- `rt_vehicle_positions_raw` was empty for three reasons: (1) `workers/run_rt_ingestor.py` imported the deprecated AC-only `gtfs_rt_ingestor`; it now runs `five11_rt_ingestor`. (2) `_process_trip_updates` read `agency_id` before assigning it, so every poll crashed (bug from d65224f). (3) the API polled every 30s, 4x the 511 limit of 60 req/hr; the interval is now `five11_rt_poll_seconds` (180) in `config.py`. The ingestor only runs while uvicorn or the worker is running.
 - Trip-update schedule lookup and per-trip DELETE are now agency-aware (multi-agency JOIN rule).
 - Verified with one live poll: 1,237 vehicle positions and 32,117 trip-update rows, 23 agencies, real delays. Added a regression test (208 tests).
 
@@ -126,7 +133,7 @@ Type `Audit` is for read-only checks: say what was inspected, what was found, an
 - Truncated synthetic `ops_trip_events` (82,416 rows, agency 3D) and derived tables `trip_stop_snapshots`, `ops_headways`, `delay_predictions`, `bunching_predictions`, `demand_forecasts`, `crowding_predictions`. Backup: `~/batis-backups/pre-synthetic-purge-20261110.dump`.
 
 ### Added
-- Stop surrogate key (migration 010, `stop_pk`) across services and tests; log redaction (`app/core/redact.py`). Commit `3f1e04c`.
+- Stop surrogate key (migration 010, `stop_pk`) across services and tests; log redaction (`app/core/redact.py`). Commit `f81371e`.
 
 ### Tests
 - 207 passing.
@@ -135,38 +142,38 @@ Type `Audit` is for read-only checks: say what was inspected, what was found, an
 
 ## History before 2026-11-10 (reconstructed from `git log`, 2026-11-10)
 
-_Written after the fact from commit subjects, not from per-change notes. The 2026-11-09 work (commits `018ba6c` to `44febdd`) is described in the entries above under 2026-11-10._
+_Written after the fact from commit subjects, not from per-change notes. The 2026-11-09 work (commits `8a7d7be` to `4ee31aa`) is described in the entries above under 2026-11-10._
 
 ### 2026-11-09
-- `018ba6c` Docs: marked the 511.org integration built, recorded local DB state, flagged PROGRESS.md stale.
-- `3f1e04c` Stop surrogate key (migration 010), log redaction, `stop_pk` joins across services.
-- `7f19274` Removed the Berkeley crime fetch (out of scope).
-- `f81ca70` Removed synthetic ops seeding, purged synthetic tables, added this CHANGELOG.
-- `4578dbe` Fixed live 511 RT ingestion (worker import, agency_id bug, poll interval, agency-aware lookups).
-- `b1620d0` Spatial transfer reliability with a user-selectable radius (migration 011).
-- `44febdd` pgvector via a custom postgres image, RAG embeddings enabled.
+- `8a7d7be` Docs: marked the 511.org integration built, recorded local DB state, flagged PROGRESS.md stale.
+- `f81371e` Stop surrogate key (migration 010), log redaction, `stop_pk` joins across services.
+- `fc23d2c` Removed the Berkeley crime fetch (out of scope).
+- `5a77392` Removed synthetic ops seeding, purged synthetic tables, added this CHANGELOG.
+- `92292c7` Fixed live 511 RT ingestion (worker import, agency_id bug, poll interval, agency-aware lookups).
+- `4c6691c` Spatial transfer reliability with a user-selectable radius (migration 011).
+- `4ee31aa` pgvector via a custom postgres image, RAG embeddings enabled.
 
 ### 2026-05-13 (multi-agency data and Sprint 5b/5c)
-- Sprint 5b: Service Delivery Gap Map finished. Migration 007 (`service_delivery_gap`, `stop_cell`), `backfill_last_n_months`, gap tier function, compute/feature/breakdown services, `tolerance_seconds` config, ETL step 15, `/equity/service-delivery-gap` endpoints (`e6c5732`), Planning sub-page (`7410dcf`), acceptance sweep (`9d54e4a`). Fix for the 511 edge-schema `stop_observations` (`006c43a`, 05-12).
-- Sprint 5c: ADA Accessibility Gap Tracker. Spec and plan, migration 008, loaders for Census tracts (TIGERweb), GTFS pathways and ACS B18105 ambulatory data, gap scoring, stop and cell GeoJSON, drill-down, ETL grew by 5 steps, `/accessibility/gaps` endpoints, Planning → ADA Gap page, acceptance sweep, review fixes (`41479c5`).
-- Foundation fix: GTFS composite primary keys `(agency_id, id)` (migration 009, `7066388`), with loader `ON CONFLICT` updates, regression tests, and agency-aware JOINs in analysis, ADA gap, smaller services, AI embeddings and frontend (`5c4fb9a` to `25d658a`). Sprint closed `95e9ea5`. ETL re-run after the migration (`92558d1`).
+- Sprint 5b: Service Delivery Gap Map finished. Migration 007 (`service_delivery_gap`, `stop_cell`), `backfill_last_n_months`, gap tier function, compute/feature/breakdown services, `tolerance_seconds` config, ETL step 15, `/equity/service-delivery-gap` endpoints (`5098436`), Planning sub-page (`2a04021`), acceptance sweep (`fa7d2a0`). Fix for the 511 edge-schema `stop_observations` (`8b6b56a`, 05-12).
+- Sprint 5c: ADA Accessibility Gap Tracker. Spec and plan, migration 008, loaders for Census tracts (TIGERweb), GTFS pathways and ACS B18105 ambulatory data, gap scoring, stop and cell GeoJSON, drill-down, ETL grew by 5 steps, `/accessibility/gaps` endpoints, Planning → ADA Gap page, acceptance sweep, review fixes (`55fc2b5`).
+- Foundation fix: GTFS composite primary keys `(agency_id, id)` (migration 009, `c98c82a`), with loader `ON CONFLICT` updates, regression tests, and agency-aware JOINs in analysis, ADA gap, smaller services, AI embeddings and frontend (`0b36998` to `239358c`). Sprint closed `82fd0b2`. ETL re-run after the migration (`25d058d`).
 
 ### 2026-05-12 (the big build day)
-- **Phase 1 frontend (1b, 1c, 1d):** sections (Operations, Network, Equity & Safety, Benchmarks), shared types and format helpers, fetch errors surfaced, dark/light theme, URL-hash state, CSV export, trip planner moved into Network, MapView reads filter and selection contexts, Sidebar retired. Several field-name and CSS fixes (`8702306`, `89f489e`, `705ff96`).
-- **511.org multi-agency integration** (`b4f083f`, Blueprint Sprints 1 and 2), AI assistant plus embedding pipeline (`47f5d31`), roadmap/prompts docs (`d4d3314`), local `status_server.py` (`a7d59e0`, later superseded by the Backend tab).
+- **Phase 1 frontend (1b, 1c, 1d):** sections (Operations, Network, Equity & Safety, Benchmarks), shared types and format helpers, fetch errors surfaced, dark/light theme, URL-hash state, CSV export, trip planner moved into Network, MapView reads filter and selection contexts, Sidebar retired. Several field-name and CSS fixes (`50e6366`, `ad9daf0`, `72b63ac`).
+- **511.org multi-agency integration** (`e012357`, Blueprint Sprints 1 and 2), AI assistant plus embedding pipeline (`839a2b7`), roadmap/prompts docs (`7432f62`), local `status_server.py` (`3ffcf81`, later superseded by the Backend tab).
 - **Agencies catalog, Phase A and B:** agencies SQL and operators ingestor, `/agencies` endpoints, `AgenciesContext`, Agency drill-down section, Overview "By agency" card, searchable agency combobox with grouping.
 - **Planning section, Phases 1 to 5b:** Diagnostics, Coverage (equity × access), Regional (MPO), Workbench, Scenarios table, CRUD and builder.
-- **GTFS-RT ingestor fix** (`e489084`): prefix-strip, delay clamp, null guard.
-- **Sprint 4a:** transfer reliability matrix, GTFS fares ingestor (v1 and v2), transfer desert map. **Sprint 4b:** fare calculator, corridor sampler, Planning → Fares page, acceptance sweep. **Sprint 5a:** Fare Burden Mapper backend and page, acceptance sweep (check 4 relaxed, `a477948`).
+- **GTFS-RT ingestor fix** (`d65224f`): prefix-strip, delay clamp, null guard.
+- **Sprint 4a:** transfer reliability matrix, GTFS fares ingestor (v1 and v2), transfer desert map. **Sprint 4b:** fare calculator, corridor sampler, Planning → Fares page, acceptance sweep. **Sprint 5a:** Fare Burden Mapper backend and page, acceptance sweep (check 4 relaxed, `74c5e0e`).
 
 ### 2026-05-11 (Phase 0 bug bash and Phase 1a)
-- Spec for the BATIS 2.0 redesign (`80c8815`) and Phase 0 plan. Backend test infrastructure.
-- Phase 0 fixes: `/routes/compare` shadowed by `/routes/{route_id}/geo` (`43e47f4`), safety buffer in degrees instead of metres (`beeef38`), schema fixes for pgvector, immutable generated columns and multi-agency (`e74faf4`), missing requirements (`0e13626`), `equity_score` populated from Census ACS (`4cd1f27`), StopDrawer wired to live departures (`f9064a0`), UTF-8 BOM in the traffic ingestor (`e36dc30`), dual-filter PostGIS pattern for safety scores (`3fe909d`). Phase 0 marked complete (`0d3c305`). docker-compose ports rewired and `postgres-test` added (`1429cc2`).
+- Spec for the BATIS 2.0 redesign (`4bdaa44`) and Phase 0 plan. Backend test infrastructure.
+- Phase 0 fixes: `/routes/compare` shadowed by `/routes/{route_id}/geo` (`f115426`), safety buffer in degrees instead of metres (`e2d2736`), schema fixes for pgvector, immutable generated columns and multi-agency (`0d0db84`), missing requirements (`f13e9ef`), `equity_score` populated from Census ACS (`fbc8156`), StopDrawer wired to live departures (`bed21a1`), UTF-8 BOM in the traffic ingestor (`c1ce074`), dual-filter PostGIS pattern for safety scores (`7cc70e0`). Phase 0 marked complete (`b36302c`). docker-compose ports rewired and `postgres-test` added (`ee7b0b4`).
 - Phase 1a (dashboard foundation): Vitest and Testing Library, design tokens, AppShell grid, FilterContext, SelectionContext, shared axios helpers, KpiCard/Spinner/EmptyState/DataList/TrendChart/BarChart primitives, FilterBar, section scaffolds, Overview content, 5-tab nav, App.tsx rewired.
 
 ### 2026-03-18
-- `aa729d2` Phase 0: SQL baseline delay predictions and 30-day vehicle position retention.
+- `94f997b` Phase 0: SQL baseline delay predictions and 30-day vehicle position retention.
 
 ### 2026-03-17 (project start)
-- `25b8188` Initial commit: BATIS dashboard (AC Transit GTFS-RT, GTFS static, safety, equity).
-- `d02cdb8` Trip Planner with a GTFS-RT delay overlay.
+- `a5b7bdd` Initial commit: BATIS dashboard (AC Transit GTFS-RT, GTFS static, safety, equity).
+- `2fcd1d7` Trip Planner with a GTFS-RT delay overlay.
